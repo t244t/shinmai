@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2e5e3e">
+<title>新米販売管理</title>
+<style>
+:root{
+  --paper:#fbf8f1; --card:#ffffff; --ink:#26302a; --mute:#6d756f; --line:#e6e1d4;
+  --green:#2e5e3e; --green2:#e3efe5; --rice:#f3ead2; --red:#c0392b; --red2:#fdecea;
+  --amber:#b7791f; --amber2:#fdf3df; --blue:#2b6cb0; --blue2:#e6f0fa;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:16px;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:10;background:var(--green);color:#fff;
+  padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;display:flex;align-items:center;gap:8px}
+header h1{font-size:17px;margin:0;flex:1;letter-spacing:.04em}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;border:0;cursor:pointer}
+.chip.q{background:var(--amber);color:#fff}
+.chip.ok{background:rgba(255,255,255,.18);color:#fff}
+.iconbtn{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:8px;width:34px;height:34px;font-size:17px;cursor:pointer}
+main{padding:12px 16px calc(84px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+section.tab{display:none}
+section.tab.on{display:block}
+h2{font-size:15px;margin:18px 2px 8px;color:var(--green)}
+h2:first-child{margin-top:4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:8px}
+.between{justify-content:space-between}
+.wrap{flex-wrap:wrap}
+.mute{color:var(--mute);font-size:13px}
+.big{font-size:22px;font-weight:700}
+.warn{color:var(--red);font-weight:700}
+.okc{color:var(--green);font-weight:700}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:6px;background:var(--rice);color:#6b5a2b;font-weight:600}
+.badge.g{background:var(--green2);color:var(--green)}
+.badge.r{background:var(--red2);color:var(--red)}
+.badge.b{background:var(--blue2);color:var(--blue)}
+.badge.a{background:var(--amber2);color:var(--amber)}
+label.f{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+input[type=text],input[type=tel],input[type=date],input[type=number],input[type=url],select,textarea{
+  width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;min-height:44px}
+textarea{min-height:60px;resize:vertical}
+.btn{display:inline-flex;justify-content:center;align-items:center;gap:6px;border:0;border-radius:10px;padding:10px 16px;
+  min-height:44px;font-weight:700;cursor:pointer;background:var(--green);color:#fff}
+.btn.full{width:100%}
+.btn.sub{background:var(--green2);color:var(--green)}
+.btn.ghost{background:transparent;color:var(--mute);border:1px solid var(--line)}
+.btn.danger{background:var(--red2);color:var(--red)}
+.btn.sm{min-height:34px;padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:default}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;min-height:40px;cursor:pointer;font-weight:600}
+.seg button.on{background:var(--green);border-color:var(--green);color:#fff}
+.stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.stepper button{width:44px;height:44px;border:0;background:var(--green2);color:var(--green);font-size:20px;font-weight:700;cursor:pointer}
+.stepper input{width:56px;border:0;text-align:center;font-size:18px;font-weight:700;min-height:44px;padding:0;border-radius:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-size:12px;color:var(--mute);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+.scroll{overflow-x:auto}
+.list .card{padding:10px 12px}
+.done{opacity:.55}
+.past{opacity:.6}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:10;background:#fff;border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(6,1fr);padding-bottom:env(safe-area-inset-bottom)}
+nav button{border:0;background:none;padding:8px 0 7px;font-size:11px;color:var(--mute);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button span{font-size:20px;line-height:1}
+nav button.on{color:var(--green);font-weight:700}
+#toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#26302a;color:#fff;
+  padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;z-index:20}
+#toast.on{opacity:.95}
+.banner{background:var(--amber2);border:1px solid #f0d9a8;color:#7a5410;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.kpi b{display:block;font-size:20px}
+.kpi small{color:var(--mute);font-size:12px}
+a{color:var(--blue)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌾 新米販売管理</h1>
+  <button id="qchip" class="chip q" hidden></button>
+  <button class="iconbtn" id="reload" title="再読み込み">⟳</button>
+</header>
+
+<main>
+  <div id="setupBanner" class="banner" hidden>GASのURLが未設定です。⚙設定から貼り付けてください。</div>
+  <section class="tab on" id="t-home"></section>
+  <section class="tab" id="t-rsv"></section>
+  <section class="tab" id="t-shop"></section>
+  <section class="tab" id="t-mill"></section>
+  <section class="tab" id="t-task"></section>
+  <section class="tab" id="t-set"></section>
+</main>
+
+<nav id="nav">
+  <button data-tab="home" class="on"><span>🏠</span>ホーム</button>
+  <button data-tab="rsv"><span>📝</span>予約</button>
+  <button data-tab="shop"><span>🏪</span>店舗</button>
+  <button data-tab="mill"><span>🍚</span>精米</button>
+  <button data-tab="task"><span>✅</span>タスク</button>
+  <button data-tab="set"><span>⚙️</span>設定</button>
+</nav>
+<div id="toast"></div>
+
+<script>
+/* ===== 設定 ===== */
+const DEFAULT_GAS_URL = ''; // デプロイした GAS の /exec URL（⚙設定から入れてもOK）
+const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
+            store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
+const WD = ['日','月','火','水','木','金','土'];
+
+/* ===== 保存 ===== */
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function lsJ(k,d){ try{ const s=localStorage.getItem(k); return s?JSON.parse(s):d; }catch(e){ return d; } }
+function lsJS(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+const gasUrl = () => (lsGet(K.url) || DEFAULT_GAS_URL).trim();
+
+/* ===== 共通 ===== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const yen = n => '¥' + Number(n||0).toLocaleString('ja-JP');
+const pad = n => ('0'+n).slice(-2);
+function today(){ const d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function addDays(s,n){ const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d+n); return t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate()); }
+function md(s){ if(!s) return ''; const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d); return m+'/'+d+'('+WD[t.getDay()]+')'; }
+function period(s){ const d=Number((s||'').split('-')[2]); return !d?'':d<=10?'上旬':d<=20?'中旬':'下旬'; }
+const cid = () => 'C' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+let toastT;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),2600); }
+
+/* ===== 通信（GET + JSONP） ===== */
+let jn = 0;
+function api(action, params={}, timeout=30000){
+  return new Promise((resolve,reject)=>{
+    const url = gasUrl();
+    if(!url) return reject(new Error('GASのURLが未設定です（⚙設定）'));
+    const cb = '__shinmai' + (jn++) + '_' + Date.now();
+    const s = document.createElement('script');
+    let done = false;
+    const end = () => { done = true; clearTimeout(t); window[cb] = function(){}; s.remove(); };
+    const t = setTimeout(()=>{ if(!done){ end(); reject(new Error('通信がタイムアウトしました')); } }, timeout);
+    window[cb] = res => { end(); (res && res.ok) ? resolve(res) : reject(new Error((res && res.error) || 'エラーが発生しました')); };
+    const q = new URLSearchParams(Object.assign({}, params, { action, callback: cb, _: Date.now() }));
+    s.src = url + (url.includes('?') ? '&' : '?') + q.toString();
+    s.onerror = () => { if(!done){ end(); reject(new Error('通信に失敗しました')); } };
+    document.body.appendChild(s);
+  });
+}
+
+/* ===== 状態 ===== */
+let D = lsJ(K.cache, null);        // サーバーの全データ
+let Q = lsJ(K.queue, []);          // 未送信の店舗実績
+let tab = lsGet(K.tab) || 'home';
+const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:'', sending:false }; // 予約フォーム
+let rsvFilter = '未', rsvQuery = '';
+const S = { store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0, by: lsGet(K.by)||'', note:'' }; // 店舗入力
+const M = {};                      // 精米の編集中データ { date: {b5,b2,pay,status,note} }
+let hideDone = true;
+const T = { kind:'', title:'', due:'', owner:'' };
+
+function setQ(q){ Q = q; lsJS(K.queue, Q); renderQChip(); }
+function renderQChip(){ const c=$('#qchip'); if(Q.length){ c.hidden=false; c.textContent='未送信 '+Q.length+'件'; } else c.hidden=true; }
+
+async function load(bg){
+  if(!gasUrl()){ render(); return; }
+  try{
+    const res = await api('getAll');
+    D = res; lsJS(K.cache, D);
+    render(bg);
+  }catch(e){
+    if(!bg) toast(e.message);
+    render(bg);
+  }
+}
+
+let flushing = false;
+async function flush(){
+  if(flushing || !Q.length || !gasUrl()) return;
+  flushing = true;
+  try{
+    while(Q.length){
+      const batch = Q.slice(0, 15);
+      const res = await api('addShopLogs', { items: JSON.stringify(batch) });
+      const done = new Set(res.done || []);
+      setQ(Q.filter(x => !done.has(x.clientId)));
+    }
+    await load(true);
+  }catch(e){ /* 電波が戻ったら再送 */ }
+  finally{ flushing = false; }
+}
+
+/* ===== 計算 ===== */
+const prices = () => (D && D.prices) || [];
+const price = size => prices().find(p => p.size === size) || { kg: size==='5kg'?5:2, rsv:0, inc:0 };
+const activeStores = () => ((D && D.stores) || []).filter(s => s.active);
+const minKg = () => Number((D && D.settings && D.settings['精米最低量kg']) || 90);
+
+function allLogs(){
+  const logs = ((D && D.logs) || []).map(l => Object.assign({ pending:false }, l));
+  Q.forEach(q => logs.push(Object.assign({ pending:true }, q)));
+  return logs;
+}
+function stockTable(){
+  const t = {};
+  activeStores().forEach(s => t[s.name] = { 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0} });
+  allLogs().forEach(l => {
+    if(!t[l.store]) t[l.store] = { 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0} };
+    if(t[l.store][l.kind] && l.size in t[l.store][l.kind]) t[l.store][l.kind][l.size] += Number(l.qty)||0;
+  });
+  return Object.keys(t).map(name => {
+    const x = t[name];
+    const r5 = x.配布['5kg'] - x.販売['5kg'] - x.返品['5kg'];
+    const r2 = x.配布['2kg'] - x.販売['2kg'] - x.返品['2kg'];
+    const dist = x.配布['5kg'] + x.配布['2kg'];
+    const sold = x.販売['5kg'] + x.販売['2kg'];
+    const sales = x.販売['5kg']*price('5kg').inc + x.販売['2kg']*price('2kg').inc;
+    return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], r5, r2, rate: dist? sold/dist : null, sales };
+  });
+}
+function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status === '未'); }
+
+/* ===== 描画 ===== */
+function render(bg){
+  $('#setupBanner').hidden = !!gasUrl();
+  renderQChip();
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('on', s.id === 't-'+tab));
+  // 入力中は裏の再読み込みで画面を描き直さない
+  const a = document.activeElement;
+  if(bg && a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.closest('section.tab.on')) return;
+  ({ home:rHome, rsv:rRsv, shop:rShop, mill:rMill, task:rTask, set:rSet })[tab]();
+}
+
+function noData(){ return '<div class="card mute">データを読み込めていません。⚙設定でGASのURLを確認し、⟳で再読み込みしてください。</div>'; }
+
+/* --- ホーム --- */
+function rHome(){
+  const el = $('#t-home');
+  if(!D){ el.innerHTML = noData(); return; }
+  const td = today();
+  const next = D.milling.find(m => m.date >= td && m.status !== '精米済' && m.status !== '中止');
+  const open = rsvOpen();
+  const o5 = open.reduce((a,r)=>a+r.b5,0), o2 = open.reduce((a,r)=>a+r.b2,0);
+  const tasks = D.tasks.filter(t => t.status !== '完了' && t.due && t.due <= addDays(td,3)).sort((a,b)=>a.due<b.due?-1:1);
+  const st = stockTable();
+
+  let h = '<h2>次の精米</h2>';
+  if(next){
+    const short = next.kg < minKg();
+    h += `<div class="card"><div class="row between"><div><div class="big">${md(next.date)}</div>
+      <div class="mute">${period(next.date)}・持ち込み ${md(addDays(next.date,-1))}</div></div>
+      <div style="text-align:right"><div class="big ${next.kg? (short?'warn':'okc') : ''}">${next.kg}kg</div>
+      <div class="mute">5kg×${next.b5}・2kg×${next.b2}</div></div></div>
+      ${next.kg && short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-next.kg}kg</div>` : ''}
+      ${!next.kg ? '<div class="mute" style="margin-top:6px">袋数が未入力です（精米タブ）</div>' : ''}</div>`;
+  } else h += '<div class="card mute">予定はありません</div>';
+
+  h += `<h2>予約（未受取）</h2><div class="kpis">
+    <div class="kpi"><b>${open.length}</b><small>件</small></div>
+    <div class="kpi"><b>${o5}</b><small>5kg 袋</small></div>
+    <div class="kpi"><b>${o2}</b><small>2kg 袋</small></div></div>`;
+
+  h += '<h2>期限が近いタスク</h2>';
+  h += tasks.length ? '<div class="list">' + tasks.map(t => `<div class="card row between">
+      <div>${esc(t.title)} ${t.owner?`<span class="mute">（${esc(t.owner)}）</span>`:''}</div>
+      <span class="badge ${t.due<td?'r':t.due===td?'a':''}">${t.due<td?'期限切れ ':''}${md(t.due)}</span></div>`).join('') + '</div>'
+    : '<div class="card mute">3日以内のタスクはありません</div>';
+
+  h += `<h2>店舗の残り</h2><div class="card scroll"><table><tr><th>店舗</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th></tr>
+    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.r5}</td><td>${s.r2}</td><td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td></tr>`).join('')}
+    </table></div>`;
+  el.innerHTML = h;
+}
+
+/* --- 予約 --- */
+function stepper(key, val){
+  return `<div class="stepper"><button type="button" data-step="${key}" data-d="-1">−</button>
+    <input type="number" inputmode="numeric" min="0" data-num="${key}" value="${val}">
+    <button type="button" data-step="${key}" data-d="1">＋</button></div>`;
+}
+function rRsv(){
+  const el = $('#t-rsv');
+  if(!D){ el.innerHTML = noData(); return; }
+  if(!F.store && activeStores()[0]) F.store = S.store || activeStores()[0].name;
+  const p5 = price('5kg').rsv, p2 = price('2kg').rsv;
+  const amt = F.b5*p5 + F.b2*p2;
+  const list = D.reservations.filter(r => (rsvFilter==='すべて' || r.status===rsvFilter) &&
+      (!rsvQuery || (r.name+r.tel+r.id).includes(rsvQuery)))
+    .sort((a,b) => (a.pickup||'9') < (b.pickup||'9') ? -1 : (a.pickup||'9') > (b.pickup||'9') ? 1 : (a.id<b.id?-1:1));
+
+  el.innerHTML = `<h2>予約を受け付ける</h2><div class="card">
+    <label class="f">受付店舗</label>
+    <div class="seg">${activeStores().map(s=>`<button type="button" data-fstore="${esc(s.name)}" class="${F.store===s.name?'on':''}">${esc(s.name)}</button>`).join('')}</div>
+    <label class="f">お名前</label><input type="text" data-f="name" value="${esc(F.name)}" placeholder="糸島 太郎">
+    <label class="f">連絡先</label><input type="tel" data-f="tel" value="${esc(F.tel)}" placeholder="090-0000-0000">
+    <div class="grid2">
+      <div><label class="f">5kg（${yen(p5)}）</label>${stepper('F.b5',F.b5)}</div>
+      <div><label class="f">2kg（${yen(p2)}）</label>${stepper('F.b2',F.b2)}</div>
+    </div>
+    <label class="f">受取予定日</label><input type="date" data-f="pickup" value="${esc(F.pickup)}">
+    <label class="f">備考</label><input type="text" data-f="note" value="${esc(F.note)}">
+    <div class="row between" style="margin:14px 0 10px"><span class="mute">予約価格（5%引き）</span><span class="big">${yen(amt)}</span></div>
+    <button class="btn full" id="rsvSubmit" ${F.sending?'disabled':''}>${F.sending?'送信中…':'予約を登録'}</button>
+  </div>
+  <h2>予約一覧</h2>
+  <div class="seg" style="margin-bottom:8px">${['未','済','キャンセル','すべて'].map(f=>`<button data-rf="${f}" class="${rsvFilter===f?'on':''}">${f==='未'?'未受取':f==='済'?'受取済':f}</button>`).join('')}</div>
+  <input type="text" id="rsvQ" placeholder="名前・電話・予約IDで検索" value="${esc(rsvQuery)}" style="margin-bottom:10px">
+  <div class="list">${list.length ? list.map(r=>`<div class="card ${r.status!=='未'?'done':''}">
+      <div class="row between"><b>${esc(r.name)}</b><span class="badge ${r.status==='済'?'g':r.status==='キャンセル'?'r':'b'}">${r.status==='未'?'未受取':r.status==='済'?'受取済':'キャンセル'}</span></div>
+      <div class="mute">${esc(r.id)}・${esc(r.store)}${r.tel?`・<a href="tel:${esc(r.tel)}">${esc(r.tel)}</a>`:''}</div>
+      <div class="row between" style="margin-top:4px"><span>${r.b5?`5kg×${r.b5} `:''}${r.b2?`2kg×${r.b2}`:''}　${yen(r.amount)}</span>
+        <span class="mute">受取 ${r.pickup?md(r.pickup):'未定'}</span></div>
+      ${r.note?`<div class="mute">${esc(r.note)}</div>`:''}
+      <div class="row wrap" style="margin-top:8px;gap:6px">
+        ${r.status==='未'?`<button class="btn sm" data-rs="${esc(r.id)}" data-st="済">受取済にする</button>
+          <button class="btn sm danger" data-rs="${esc(r.id)}" data-st="キャンセル">キャンセル</button>`
+          :`<button class="btn sm ghost" data-rs="${esc(r.id)}" data-st="未">未受取に戻す</button>`}
+      </div></div>`).join('') : '<div class="card mute">該当する予約はありません</div>'}</div>`;
+}
+
+async function submitRsv(){
+  if(!F.name.trim()) return toast('お名前を入力してください');
+  if(F.b5 + F.b2 === 0) return toast('袋数を入力してください');
+  if(!F.clientId) F.clientId = cid();
+  F.sending = true; rRsv();
+  try{
+    const res = await api('addReservation', { data: JSON.stringify({
+      clientId:F.clientId, store:F.store, name:F.name, tel:F.tel, b5:F.b5, b2:F.b2, pickup:F.pickup, note:F.note }) });
+    toast('予約を登録しました（' + res.id + '）');
+    Object.assign(F, { name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:'' });
+    await load();
+  }catch(e){ toast(e.message + '　もう一度押しても二重登録にはなりません'); }
+  finally{ F.sending = false; if(tab==='rsv') rRsv(); }
+}
+
+/* --- 店舗 --- */
+function rShop(){
+  const el = $('#t-shop');
+  if(!D){ el.innerHTML = noData(); return; }
+  if(!S.store && activeStores()[0]) S.store = activeStores()[0].name;
+  const st = stockTable();
+  const logs = allLogs().filter(l => l.store === S.store).slice(-20).reverse();
+  el.innerHTML = `<h2>配布・販売を記録</h2><div class="card">
+    <label class="f">店舗</label>
+    <div class="seg">${activeStores().map(s=>`<button data-sstore="${esc(s.name)}" class="${S.store===s.name?'on':''}">${esc(s.name)}</button>`).join('')}</div>
+    <label class="f">区分</label>
+    <div class="seg">${[['配布','配布（店舗へ渡す）'],['販売','販売'],['返品','返品・回収']].map(([k,l])=>`<button data-skind="${k}" class="${S.kind===k?'on':''}">${l}</button>`).join('')}</div>
+    <div class="grid2">
+      <div><label class="f">5kg</label>${stepper('S.b5',S.b5)}</div>
+      <div><label class="f">2kg</label>${stepper('S.b2',S.b2)}</div>
+    </div>
+    <div class="grid2">
+      <div><label class="f">日付</label><input type="date" data-s="date" value="${esc(S.date)}"></div>
+      <div><label class="f">入力者</label><input type="text" data-s="by" value="${esc(S.by)}"></div>
+    </div>
+    <button class="btn full" id="shopSubmit" style="margin-top:14px">記録する</button>
+    <div class="mute" style="margin-top:6px">電波がなくても記録できます。つながったら自動で送信します。</div>
+  </div>
+  <h2>店舗別の状況</h2>
+  <div class="card scroll"><table>
+    <tr><th>店舗</th><th>配布</th><th>販売</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
+    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.s5+s.s2}</td><td>${s.r5}</td><td>${s.r2}</td>
+      <td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td><td>${yen(s.sales)}</td></tr>`).join('')}
+  </table><div class="mute" style="margin-top:6px">残＝配布−販売−返品。売上は税込価格で計算。</div></div>
+  <h2>${esc(S.store)} の最近の記録</h2>
+  <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
+      <div><span class="badge ${l.kind==='販売'?'g':l.kind==='配布'?'b':'a'}">${esc(l.kind)}</span>
+        ${esc(l.size)} × ${l.qty}　<span class="mute">${md(l.date)}${l.by?'・'+esc(l.by):''}</span>
+        ${l.pending?'<span class="badge a">未送信</span>':''}</div>
+      <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending?1:0}">取消</button></div>`).join('')
+    : '<div class="card mute">記録はまだありません</div>'}</div>`;
+}
+
+function submitShop(){
+  if(!S.store) return toast('店舗を選んでください');
+  if(S.b5 + S.b2 === 0) return toast('数量を入力してください');
+  lsSet(K.by, S.by); lsSet(K.store, S.store);
+  const add = [];
+  [['5kg',S.b5],['2kg',S.b2]].forEach(([size,qty]) => {
+    if(qty > 0) add.push({ clientId:cid(), date:S.date||today(), store:S.store, size, kind:S.kind, qty, by:S.by, note:'' });
+  });
+  setQ(Q.concat(add));
+  S.b5 = 0; S.b2 = 0;
+  toast(`${S.store}：${S.kind}を記録しました`);
+  rShop(); flush();
+}
+
+async function delLog(id, pending){
+  if(!confirm('この記録を取り消しますか？')) return;
+  if(pending){ setQ(Q.filter(q => q.clientId !== id)); rShop(); return; }
+  try{ await api('deleteShopLog', { clientId:id }); toast('取り消しました'); await load(); }
+  catch(e){ toast(e.message); }
+}
+
+/* --- 精米 --- */
+function rMill(){
+  const el = $('#t-mill');
+  if(!D){ el.innerHTML = noData(); return; }
+  const td = today();
+  const open = rsvOpen();
+  const o5 = open.reduce((a,r)=>a+r.b5,0), o2 = open.reduce((a,r)=>a+r.b2,0);
+  const st = stockTable();
+  const r5 = st.reduce((a,s)=>a+s.r5,0), r2 = st.reduce((a,s)=>a+s.r2,0);
+  el.innerHTML = `<div class="card mute">毎週火・木に精米（${esc((D.settings||{})['持込時間']||'9:00〜17:00')}に前日持ち込み）。${minKg()}kg以上から・支払いは現金。<br>
+    参考：未受取の予約 5kg×${o5}・2kg×${o2}／店舗の残り 5kg×${r5}・2kg×${r2}</div>
+  <div class="list">${D.milling.map(m => {
+    const e = M[m.date] || {};
+    const b5 = e.b5 ?? m.b5, b2 = e.b2 ?? m.b2;
+    const kg = b5*price('5kg').kg + b2*price('2kg').kg;
+    const short = kg>0 && kg<minKg();
+    const dirty = Object.keys(e).length > 0;
+    const past = m.date < td;
+    return `<div class="card ${past||m.status==='精米済'||m.status==='中止'?'past':''}">
+      <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
+        <div class="mute">持ち込み ${md(addDays(m.date,-1))}</div></div>
+        <div style="text-align:right"><div class="big ${kg?(short?'warn':'okc'):''}">${kg}kg</div>
+        ${short?`<div class="warn" style="font-size:12px">あと${minKg()-kg}kg</div>`:''}</div></div>
+      <div class="grid2" style="margin-top:6px">
+        <div><label class="f">5kg 袋</label>${stepper('M.'+m.date+'.b5', b5)}</div>
+        <div><label class="f">2kg 袋</label>${stepper('M.'+m.date+'.b2', b2)}</div>
+      </div>
+      <div class="grid2">
+        <div><label class="f">状態</label><select data-m="${m.date}" data-k="status">
+          ${['予定','持込済','精米済','中止'].map(s=>`<option ${ (e.status??m.status)===s?'selected':''}>${s}</option>`).join('')}</select></div>
+        <div><label class="f">支払額（円）</label><input type="number" inputmode="numeric" data-m="${m.date}" data-k="pay" value="${e.pay ?? (m.pay||'')}"></div>
+      </div>
+      <label class="f">備考</label><input type="text" data-m="${m.date}" data-k="note" value="${esc(e.note ?? m.note)}">
+      <button class="btn full ${dirty?'':'sub'}" style="margin-top:10px" data-msave="${m.date}" ${dirty?'':'disabled'}>保存</button>
+    </div>`;}).join('')}</div>
+  <h2>精米日を追加</h2>
+  <div class="card row"><input type="date" id="millNew"><button class="btn" id="millAdd">追加</button></div>`;
+}
+
+async function saveMill(date){
+  const e = M[date]; if(!e) return;
+  try{
+    await api('saveMilling', Object.assign({ date }, e));
+    delete M[date]; toast(md(date) + ' を保存しました'); await load();
+  }catch(err){ toast(err.message); }
+}
+
+/* --- タスク --- */
+function rTask(){
+  const el = $('#t-task');
+  if(!D){ el.innerHTML = noData(); return; }
+  const td = today();
+  const list = D.tasks.filter(t => !hideDone || t.status !== '完了')
+    .sort((a,b) => (a.due||'9') < (b.due||'9') ? -1 : (a.due||'9') > (b.due||'9') ? 1 : (a.id<b.id?-1:1));
+  const doneN = D.tasks.filter(t => t.status==='完了').length;
+  el.innerHTML = `<div class="row between" style="margin:4px 2px 8px"><span class="mute">完了 ${doneN} / ${D.tasks.length}</span>
+    <button class="btn sm ghost" id="toggleDone">${hideDone?'完了も表示':'完了を隠す'}</button></div>
+  <div class="list">${list.map(t => `<div class="card ${t.status==='完了'?'done':''}">
+    <div class="row between"><div><span class="badge">${esc(t.kind)}</span> <b>${esc(t.title)}</b></div>
+      <span class="badge ${t.status!=='完了'&&t.due&&t.due<td?'r':t.due===td?'a':''}">${t.due?md(t.due):'期限なし'}</span></div>
+    ${t.note?`<div class="mute">${esc(t.note)}</div>`:''}
+    <div class="grid2" style="margin-top:6px">
+      <select data-tid="${esc(t.id)}" data-tk="status">${['未着手','進行中','完了'].map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select>
+      <input type="text" data-tid="${esc(t.id)}" data-tk="owner" value="${esc(t.owner)}" placeholder="担当">
+    </div></div>`).join('') || '<div class="card mute">タスクはありません</div>'}</div>
+  <h2>タスクを追加</h2><div class="card">
+    <input type="text" data-t="title" value="${esc(T.title)}" placeholder="タスク名">
+    <div class="grid2" style="margin-top:8px">
+      <input type="text" data-t="kind" value="${esc(T.kind)}" placeholder="区分（例：販促）">
+      <input type="date" data-t="due" value="${esc(T.due)}">
+    </div>
+    <input type="text" data-t="owner" value="${esc(T.owner)}" placeholder="担当" style="margin-top:8px">
+    <button class="btn full" id="taskAdd" style="margin-top:10px">追加</button></div>`;
+}
+
+async function saveTask(id, key, val){
+  try{ await api('saveTask', { id, [key]: val }); toast('保存しました'); await load(true); }
+  catch(e){ toast(e.message); }
+}
+
+/* --- 設定 --- */
+function rSet(){
+  const el = $('#t-set');
+  const stores = (D && D.stores) || [];
+  el.innerHTML = `<h2>接続</h2><div class="card">
+    <label class="f">GASのURL（/exec で終わるもの）</label>
+    <input type="url" id="gasUrl" value="${esc(gasUrl())}" placeholder="https://script.google.com/macros/s/.../exec">
+    <div class="row" style="margin-top:10px;gap:8px">
+      <button class="btn" id="urlSave">保存して読み込む</button>
+      <button class="btn sub" id="ping">接続テスト</button></div></div>
+  ${D ? `<h2>価格</h2>${prices().map(p=>`<div class="card"><b>${esc(p.size)}</b>
+    <div class="grid2">
+      <div><label class="f">税別</label><input type="number" data-p="${esc(p.size)}" data-pk="ex" value="${p.ex}"></div>
+      <div><label class="f">税込</label><input type="number" data-p="${esc(p.size)}" data-pk="inc" value="${p.inc}"></div>
+      <div><label class="f">社割（税込）</label><input type="number" data-p="${esc(p.size)}" data-pk="staff" value="${p.staff}"></div>
+      <div><label class="f">予約価格</label><input type="number" data-p="${esc(p.size)}" data-pk="rsv" value="${p.rsv}"></div>
+    </div><button class="btn sub full" style="margin-top:10px" data-psave="${esc(p.size)}">保存</button></div>`).join('')}
+  <h2>店舗</h2>${stores.map(s=>`<div class="card">
+    <div class="grid2"><input type="text" data-sid="${esc(s.id)}" data-sk="name" value="${esc(s.name)}">
+      <input type="text" data-sid="${esc(s.id)}" data-sk="type" value="${esc(s.type)}"></div>
+    <div class="row between" style="margin-top:8px"><label class="row"><input type="checkbox" data-sid="${esc(s.id)}" data-sk="active" ${s.active?'checked':''}> 使う</label>
+      <button class="btn sm sub" data-stsave="${esc(s.id)}">保存</button></div></div>`).join('')}
+  <div class="card"><div class="grid2"><input type="text" id="newStore" placeholder="新しい店舗名"><button class="btn sub" id="storeAdd">店舗を追加</button></div></div>` : ''}
+  <h2>この端末</h2><div class="card">
+    <div class="mute">未送信の記録：${Q.length}件　${Q.length?'<button class="btn sm" id="flushNow">今すぐ送信</button>':''}</div>
+    <div class="mute" style="margin-top:6px">未送信が残っている間は、ブラウザのサイトデータを消さないでください。</div></div>`;
+}
+
+/* ===== イベント ===== */
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if(!b) return;
+  if(b.dataset.tab){ tab = b.dataset.tab; lsSet(K.tab, tab); render(); window.scrollTo(0,0); return; }
+  if(b.id === 'reload'){ load(); flush(); return; }
+  if(b.id === 'qchip' || b.id === 'flushNow'){ flush().then(()=>toast(Q.length?'まだ送信できません':'送信しました')); return; }
+  if(b.dataset.step){
+    const [obj, ...path] = b.dataset.step.split('.'); const d = Number(b.dataset.d);
+    if(obj === 'F'){ F[path[0]] = Math.max(0, F[path[0]] + d); rRsv(); }
+    else if(obj === 'S'){ S[path[0]] = Math.max(0, S[path[0]] + d); rShop(); }
+    else if(obj === 'M'){ const [date,k] = path; const m = D.milling.find(x=>x.date===date);
+      M[date] = M[date] || {}; M[date][k] = Math.max(0, (M[date][k] ?? m[k]) + d); rMill(); }
+    return;
+  }
+  if(b.dataset.fstore){ F.store = b.dataset.fstore; rRsv(); return; }
+  if(b.id === 'rsvSubmit'){ submitRsv(); return; }
+  if(b.dataset.rf){ rsvFilter = b.dataset.rf; rRsv(); return; }
+  if(b.dataset.rs){
+    const st = b.dataset.st;
+    if(st === 'キャンセル' && !confirm('この予約をキャンセルにしますか？')) return;
+    api('updateReservation', { id:b.dataset.rs, status:st }).then(()=>{ toast('更新しました'); load(); }).catch(err=>toast(err.message));
+    return;
+  }
+  if(b.dataset.sstore){ S.store = b.dataset.sstore; lsSet(K.store, S.store); rShop(); return; }
+  if(b.dataset.skind){ S.kind = b.dataset.skind; rShop(); return; }
+  if(b.id === 'shopSubmit'){ submitShop(); return; }
+  if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
+  if(b.dataset.msave){ saveMill(b.dataset.msave); return; }
+  if(b.id === 'millAdd'){
+    const v = $('#millNew').value; if(!v) return toast('日付を選んでください');
+    api('saveMilling', { date:v, status:'予定' }).then(()=>{ toast('追加しました'); load(); }).catch(err=>toast(err.message)); return;
+  }
+  if(b.id === 'toggleDone'){ hideDone = !hideDone; rTask(); return; }
+  if(b.id === 'taskAdd'){
+    if(!T.title.trim()) return toast('タスク名を入力してください');
+    api('saveTask', Object.assign({}, T)).then(()=>{ toast('追加しました'); Object.assign(T,{kind:'',title:'',due:'',owner:''}); load(); }).catch(err=>toast(err.message));
+    return;
+  }
+  if(b.id === 'urlSave'){ lsSet(K.url, $('#gasUrl').value.trim()); toast('保存しました'); load(); flush(); return; }
+  if(b.id === 'ping'){
+    lsSet(K.url, $('#gasUrl').value.trim());
+    api('ping', {}, 15000).then(r=>toast('接続OK（' + r.now + '）')).catch(err=>{ toast(err.message); });
+    return;
+  }
+  if(b.dataset.psave){
+    const size = b.dataset.psave, p = { size };
+    document.querySelectorAll(`[data-p="${CSS.escape(size)}"]`).forEach(i => p[i.dataset.pk] = i.value);
+    api('savePrice', p).then(()=>{ toast('価格を保存しました'); load(); }).catch(err=>toast(err.message)); return;
+  }
+  if(b.dataset.stsave){
+    const id = b.dataset.stsave, p = { id };
+    document.querySelectorAll(`[data-sid="${CSS.escape(id)}"]`).forEach(i => p[i.dataset.sk] = i.type==='checkbox' ? i.checked : i.value);
+    api('saveStore', p).then(()=>{ toast('店舗を保存しました'); load(); }).catch(err=>toast(err.message)); return;
+  }
+  if(b.id === 'storeAdd'){
+    const name = $('#newStore').value.trim(); if(!name) return toast('店舗名を入力してください');
+    api('saveStore', { name, type:'分配先', active:true }).then(()=>{ toast('追加しました'); load(); }).catch(err=>toast(err.message)); return;
+  }
+});
+
+document.addEventListener('input', e => {
+  const i = e.target;
+  if(i.dataset.f){ F[i.dataset.f] = i.value; return; }
+  if(i.dataset.s){ S[i.dataset.s] = i.value; return; }
+  if(i.dataset.t){ T[i.dataset.t] = i.value; return; }
+  if(i.id === 'rsvQ'){ rsvQuery = i.value.trim(); clearTimeout(i._t); i._t = setTimeout(()=>{ rRsv(); const q=$('#rsvQ'); q.focus(); q.setSelectionRange(q.value.length,q.value.length); }, 300); return; }
+  if(i.dataset.num){
+    const [obj, ...path] = i.dataset.num.split('.'); const v = Math.max(0, Math.floor(Number(i.value)||0));
+    if(obj === 'F') F[path[0]] = v;
+    else if(obj === 'S') S[path[0]] = v;
+    else if(obj === 'M'){ const [date,k] = path; M[date] = M[date] || {}; M[date][k] = v; }
+    return;
+  }
+  if(i.dataset.m && i.tagName === 'INPUT'){ const d = i.dataset.m; M[d] = M[d] || {}; M[d][i.dataset.k] = i.value; enableSave(d); }
+});
+
+document.addEventListener('change', e => {
+  const i = e.target;
+  if(i.dataset.num){ if(tab==='rsv') rRsv(); else if(tab==='shop') rShop(); else if(tab==='mill') rMill(); return; }
+  if(i.dataset.m && i.tagName === 'SELECT'){ const d = i.dataset.m; M[d] = M[d] || {}; M[d][i.dataset.k] = i.value; enableSave(d); return; }
+  if(i.dataset.tid){ saveTask(i.dataset.tid, i.dataset.tk, i.value); return; }
+});
+function enableSave(d){ const b = document.querySelector(`[data-msave="${d}"]`); if(b){ b.disabled = false; b.classList.remove('sub'); } }
+
+window.addEventListener('online', flush);
+setInterval(flush, 20000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden){ load(true); flush(); } });
+
+render();
+load();
+flush();
+</script>
+</body>
+</html>

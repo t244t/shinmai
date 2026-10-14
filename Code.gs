@@ -1,0 +1,449 @@
+/**
+ * 新米販売管理 — GAS バックエンド
+ * スプレッドシート「新米販売管理」にバインドして使う（拡張機能 > Apps Script）。
+ * 通信は GET + JSONP（callback パラメータ）で CORS を回避。
+ */
+const SPREADSHEET_ID = ''; // 空欄 = このスクリプトがバインドされたスプレッドシートを使う
+const TZ = 'Asia/Tokyo';
+
+const HEAD = {
+  '設定':     ['キー', '値', '説明'],
+  '価格マスタ': ['規格', '内容量kg', '税別', '税込', '社割税込', '予約価格'],
+  '店舗マスタ': ['店舗ID', '店舗名', '区分', '有効'],
+  '予約':     ['予約ID', '受付日', '受付店舗', 'お名前', '連絡先', '5kg袋数', '2kg袋数', '金額',
+               '受取予定日', '受取状況', '受取日', '備考', '登録日時', '受付ID'],
+  '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時'],
+  '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
+               '支払額', '状態', '備考'],
+  'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
+};
+
+const DEFAULTS = {
+  '設定': [
+    ['税率', 0.08, '食品の軽減税率'],
+    ['予約割引率', 0.05, '予約で5%引き'],
+    ['精米最低量kg', 90, '精米は90kg以上から'],
+    ['精米曜日', '火,木', '毎週'],
+    ['持込時間', '9:00〜17:00', '精米日の前日に袋を持参'],
+    ['支払方法', '現金', '精米代'],
+    ['販売期間日数', 30, '約1ヶ月で入れ替え'],
+    ['販売開始日', '2026-10-23', '目安'],
+  ],
+  '価格マスタ': [
+    ['5kg', 5, 3300, 3570, 3000, 3385],
+    ['2kg', 2, 1500, 1620, 1400, 1540],
+  ],
+  '店舗マスタ': [
+    ['S01', '即売会本店', '本店', true],
+    ['S02', 'ねぎぼうず', '分配先', true],
+    ['S03', '市役所売店', '分配先', true],
+    ['S04', 'イオンマリナ', '分配先', true],
+    ['S05', 'イオン笹丘', '分配先', true],
+  ],
+  'タスク': [
+    ['T01', '打合せ', '新米販売 打合せ', '2026-10-14', '', '完了', ''],
+    ['T02', '確認', '部長へ確認（価格・数量・分配先・予約割引）', '2026-10-15', '', '未着手', ''],
+    ['T03', '予約', '現在の予約表・記録方法の確認', '2026-10-16', '', '未着手', ''],
+    ['T04', '数量', '店舗別の配布数量・販売数量を決定', '2026-10-16', '', '未着手', ''],
+    ['T05', '表示', '裏表示ラベル作成', '2026-10-19', '', '未着手', ''],
+    ['T06', '販促', 'ポップ作成（販売用）', '2026-10-19', '', '未着手', ''],
+    ['T07', '販促', 'ポップ作成（予約用）', '2026-10-19', '', '未着手', ''],
+    ['T08', '登録', '商品登録（各店舗）', '2026-10-20', '', '未着手', ''],
+    ['T09', '予約', '予約受付開始', '2026-10-20', '', '未着手', ''],
+    ['T10', '精米', '精米依頼書へ数量入力', '2026-10-20', '', '未着手', ''],
+    ['T11', '精米', '精米代（現金）・袋の準備', '2026-10-20', '', '未着手', ''],
+    ['T12', '精米', '袋を持参して持ち込み', '2026-10-21', '', '未着手', ''],
+    ['T13', '精米', '精米', '2026-10-22', '', '未着手', ''],
+    ['T14', '配布', '各店舗へ配布・販売開始', '2026-10-23', '', '未着手', ''],
+    ['T15', '管理', '店舗別の動き確認', '2026-10-30', '', '未着手', ''],
+    ['T16', '管理', '入れ替え用の精米依頼', '2026-11-19', '', '未着手', ''],
+    ['T17', '管理', '新しい物と入れ替え', '2026-11-23', '', '未着手', ''],
+  ],
+};
+
+/* ---------------- エントリポイント ---------------- */
+
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  const cb = p.callback;
+  let out;
+  try {
+    const a = p.action || 'ping';
+    if (a === 'ping') out = { ok: true, now: nowStr_() };
+    else if (a === 'getAll') out = getAll_();
+    else if (a === 'addReservation') out = locked_(() => addReservation_(JSON.parse(p.data)));
+    else if (a === 'updateReservation') out = locked_(() => updateReservation_(p));
+    else if (a === 'addShopLogs') out = locked_(() => addShopLogs_(JSON.parse(p.items)));
+    else if (a === 'deleteShopLog') out = locked_(() => deleteShopLog_(p.clientId));
+    else if (a === 'saveMilling') out = locked_(() => saveMilling_(p));
+    else if (a === 'saveTask') out = locked_(() => saveTask_(p));
+    else if (a === 'savePrice') out = locked_(() => savePrice_(p));
+    else if (a === 'saveStore') out = locked_(() => saveStore_(p));
+    else out = { ok: false, error: '不明なaction: ' + a };
+  } catch (err) {
+    out = { ok: false, error: String(err && err.message || err) };
+  }
+  return reply_(out, cb);
+}
+
+function reply_(out, cb) {
+  const json = JSON.stringify(out);
+  if (cb) {
+    return ContentService.createTextOutput(cb + '(' + json + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+function locked_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+/** 初回に一度だけ実行：シート作成・タイムゾーン設定 */
+function setup() {
+  const ss = ss_();
+  ss.setSpreadsheetTimeZone(TZ);
+  Object.keys(HEAD).forEach(sheet_);
+  return 'OK';
+}
+
+/* ---------------- シート共通 ---------------- */
+
+function ss_() {
+  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+}
+
+/** シートを取得。なければ作成、見出しが足りなければ右端に追加（既存データは触らない） */
+function sheet_(name) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(name);
+  const head = HEAD[name];
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    if (DEFAULTS[name]) {
+      const d = DEFAULTS[name];
+      sh.getRange(2, 1, d.length, d[0].length).setValues(d);
+    }
+    if (name === '精米記録') seedMilling_(sh);
+    return sh;
+  }
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const cur = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  const missing = head.filter(h => cur.indexOf(h) < 0);
+  if (missing.length) sh.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+  return sh;
+}
+
+/** 見出し名 → 列番号(1始まり) */
+function cols_(sh) {
+  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const m = {};
+  h.forEach((v, i) => { if (v !== '') m[String(v)] = i + 1; });
+  return m;
+}
+
+/** 全行をオブジェクトで返す（_row = シート上の行番号） */
+function rows_(sh) {
+  const v = sh.getDataRange().getValues();
+  if (v.length < 2) return [];
+  const h = v[0].map(String);
+  const out = [];
+  for (let r = 1; r < v.length; r++) {
+    const o = { _row: r + 1 };
+    let empty = true;
+    h.forEach((k, i) => { if (k) { o[k] = v[r][i]; if (v[r][i] !== '') empty = false; } });
+    if (!empty) out.push(o);
+  }
+  return out;
+}
+
+/** 1行を見出し名指定で書き込む */
+function writeRow_(sh, row, obj) {
+  const c = cols_(sh);
+  Object.keys(obj).forEach(k => { if (c[k]) sh.getRange(row, c[k]).setValue(obj[k]); });
+}
+
+/** 見出し順の配列に変換（追記用） */
+function toArr_(sh, obj) {
+  const c = cols_(sh);
+  const n = sh.getLastColumn();
+  const a = new Array(n).fill('');
+  Object.keys(obj).forEach(k => { if (c[k]) a[c[k] - 1] = obj[k]; });
+  return a;
+}
+
+function appendRows_(sh, arrs) {
+  if (!arrs.length) return;
+  const start = lastDataRow_(sh) + 1;
+  sh.getRange(start, 1, arrs.length, arrs[0].length).setValues(arrs);
+}
+
+/** 1列目に値がある最終行（書式だけの行を無視） */
+function lastDataRow_(sh) {
+  const n = sh.getLastRow();
+  if (n < 2) return 1;
+  const v = sh.getRange(1, 1, n, 1).getValues();
+  for (let i = v.length - 1; i >= 0; i--) if (v[i][0] !== '') return i + 1;
+  return 1;
+}
+
+/* ---------------- 日付 ---------------- */
+
+function nowStr_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'); }
+function todayStr_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
+
+/** セルの日付（Date でも文字列でも）を yyyy-MM-dd に */
+function d_(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  if (v instanceof Date) return Utilities.formatDate(v, ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  const s = String(v).trim().replace(/\//g, '-');
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : s;
+}
+function dt_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  return String(v || '');
+}
+function n_(v) { const x = Number(v); return isFinite(x) ? x : 0; }
+
+/* ---------------- 読み込み ---------------- */
+
+function settings_() {
+  const s = {};
+  rows_(sheet_('設定')).forEach(r => { s[String(r['キー'])] = r['値'] instanceof Date ? d_(r['値']) : r['値']; });
+  return s;
+}
+
+function prices_() {
+  return rows_(sheet_('価格マスタ')).map(r => ({
+    size: String(r['規格']), kg: n_(r['内容量kg']), ex: n_(r['税別']), inc: n_(r['税込']),
+    staff: n_(r['社割税込']), rsv: n_(r['予約価格']),
+  })).filter(p => p.kg > 0); // 注記行などを除外
+}
+
+function getAll_() {
+  const settings = settings_();
+  const prices = prices_();
+  const kg = {}; prices.forEach(p => kg[p.size] = p.kg);
+
+  const stores = rows_(sheet_('店舗マスタ')).map(r => ({
+    id: String(r['店舗ID']), name: String(r['店舗名']), type: String(r['区分']),
+    active: r['有効'] === true || String(r['有効']).toUpperCase() === 'TRUE',
+  }));
+
+  const reservations = rows_(sheet_('予約')).map(r => ({
+    id: String(r['予約ID']), date: d_(r['受付日']), store: String(r['受付店舗']),
+    name: String(r['お名前']), tel: String(r['連絡先']), b5: n_(r['5kg袋数']), b2: n_(r['2kg袋数']),
+    amount: n_(r['金額']), pickup: d_(r['受取予定日']), status: String(r['受取状況'] || '未'),
+    pickedAt: d_(r['受取日']), note: String(r['備考']), createdAt: dt_(r['登録日時']),
+  }));
+
+  const logs = rows_(sheet_('店舗実績')).map(r => ({
+    date: d_(r['日付']), store: String(r['店舗']), size: String(r['規格']), kind: String(r['区分']),
+    qty: n_(r['数量']), by: String(r['入力者']), note: String(r['備考']), clientId: String(r['受付ID']),
+  }));
+
+  const milling = rows_(sheet_('精米記録')).map(r => {
+    const b5 = n_(r['5kg袋数']), b2 = n_(r['2kg袋数']);
+    return {
+      date: d_(r['精米日']), b5: b5, b2: b2, kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
+      pay: n_(r['支払額']), status: String(r['状態'] || '予定'), note: String(r['備考']),
+    };
+  }).filter(m => m.date).sort((a, b) => a.date < b.date ? -1 : 1);
+
+  const tasks = rows_(sheet_('タスク')).map(r => ({
+    id: String(r['ID']), kind: String(r['区分']), title: String(r['タスク']), due: d_(r['期限']),
+    owner: String(r['担当']), status: String(r['状態'] || '未着手'), note: String(r['備考']),
+  }));
+
+  return { ok: true, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks };
+}
+
+/* ---------------- 予約 ---------------- */
+
+function addReservation_(d) {
+  const sh = sheet_('予約');
+  const rows = rows_(sh);
+  if (d.clientId) {
+    const ex = rows.find(r => String(r['受付ID']) === String(d.clientId));
+    if (ex) return { ok: true, id: String(ex['予約ID']), duplicate: true };
+  }
+  const b5 = Math.max(0, Math.floor(n_(d.b5))), b2 = Math.max(0, Math.floor(n_(d.b2)));
+  if (!String(d.name || '').trim()) throw new Error('お名前を入力してください');
+  if (b5 + b2 === 0) throw new Error('袋数を入力してください');
+
+  const pr = {}; prices_().forEach(p => pr[p.size] = p);
+  const amount = b5 * (pr['5kg'] ? pr['5kg'].rsv : 0) + b2 * (pr['2kg'] ? pr['2kg'].rsv : 0);
+
+  let max = 0;
+  rows.forEach(r => { const m = String(r['予約ID']).match(/^Y(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
+  const id = 'Y' + ('000' + (max + 1)).slice(-4);
+
+  appendRows_(sh, [toArr_(sh, {
+    '予約ID': id, '受付日': todayStr_(), '受付店舗': d.store || '', 'お名前': String(d.name).trim(),
+    '連絡先': d.tel ? "'" + d.tel : '', '5kg袋数': b5, '2kg袋数': b2, '金額': amount,
+    '受取予定日': d.pickup || '', '受取状況': '未', '備考': d.note || '',
+    '登録日時': nowStr_(), '受付ID': d.clientId || '',
+  })]);
+  return { ok: true, id: id, amount: amount };
+}
+
+function updateReservation_(p) {
+  const sh = sheet_('予約');
+  const r = rows_(sh).find(x => String(x['予約ID']) === String(p.id));
+  if (!r) throw new Error('予約が見つかりません: ' + p.id);
+  const st = p.status;
+  if (['未', '済', 'キャンセル'].indexOf(st) < 0) throw new Error('状態が不正です');
+  writeRow_(sh, r._row, { '受取状況': st, '受取日': st === '済' ? todayStr_() : '' });
+  return { ok: true };
+}
+
+/* ---------------- 店舗実績 ---------------- */
+
+function addShopLogs_(items) {
+  const sh = sheet_('店舗実績');
+  const seen = {};
+  rows_(sh).forEach(r => { if (r['受付ID']) seen[String(r['受付ID'])] = true; });
+  const arrs = [], done = [];
+  items.forEach(it => {
+    done.push(it.clientId);
+    if (it.clientId && seen[it.clientId]) return;
+    if (['配布', '販売', '返品'].indexOf(it.kind) < 0) return;
+    arrs.push(toArr_(sh, {
+      '日付': it.date || todayStr_(), '店舗': it.store, '規格': it.size, '区分': it.kind,
+      '数量': Math.floor(n_(it.qty)), '入力者': it.by || '', '備考': it.note || '',
+      '受付ID': it.clientId || '', '登録日時': nowStr_(),
+    }));
+    if (it.clientId) seen[it.clientId] = true;
+  });
+  appendRows_(sh, arrs);
+  return { ok: true, added: arrs.length, done: done };
+}
+
+function deleteShopLog_(clientId) {
+  const sh = sheet_('店舗実績');
+  const r = rows_(sh).find(x => String(x['受付ID']) === String(clientId));
+  if (!r) throw new Error('記録が見つかりません');
+  sh.deleteRow(r._row);
+  return { ok: true };
+}
+
+/* ---------------- 精米記録 ---------------- */
+
+function saveMilling_(p) {
+  const sh = sheet_('精米記録');
+  const date = d_(p.date);
+  if (!date) throw new Error('精米日が不正です');
+  let r = rows_(sh).find(x => d_(x['精米日']) === date);
+  let row;
+  if (r) row = r._row;
+  else {
+    row = lastDataRow_(sh) + 1;
+    sh.getRange(row, 1).setValue(date);
+    millingFormulas_(sh, row);
+  }
+  const o = {};
+  if (p.b5 !== undefined) o['5kg袋数'] = Math.max(0, Math.floor(n_(p.b5)));
+  if (p.b2 !== undefined) o['2kg袋数'] = Math.max(0, Math.floor(n_(p.b2)));
+  if (p.pay !== undefined) o['支払額'] = p.pay === '' ? '' : n_(p.pay);
+  if (p.status !== undefined) o['状態'] = p.status;
+  if (p.note !== undefined) o['備考'] = p.note;
+  writeRow_(sh, row, o);
+  return { ok: true };
+}
+
+function millingFormulas_(sh, r) {
+  const c = cols_(sh);
+  const L = k => columnLetter_(c[k]);
+  const A = L('精米日') + r;
+  const set = (k, f) => { if (c[k]) sh.getRange(r, c[k]).setFormula(f); };
+  set('曜日', '=CHOOSE(WEEKDAY(' + A + '),"日","月","火","水","木","金","土")');
+  set('時期', '=IF(DAY(' + A + ')<=10,"上旬",IF(DAY(' + A + ')<=20,"中旬","下旬"))');
+  set('持込日', '=' + A + '-1');
+  set('精米量kg', '=' + L('5kg袋数') + r + '*価格マスタ!$B$2+' + L('2kg袋数') + r + '*価格マスタ!$B$3');
+  set('90kg判定', '=IF(' + L('精米量kg') + r + '=0,"",IF(' + L('精米量kg') + r + '>=設定!$B$4,"OK","不足"))');
+}
+
+function seedMilling_(sh) {
+  const d = new Date(2026, 9, 22);
+  const end = new Date(2026, 10, 26);
+  let r = 2;
+  while (d <= end) {
+    const w = d.getDay();
+    if (w === 2 || w === 4) {
+      sh.getRange(r, 1).setValue(Utilities.formatDate(d, TZ, 'yyyy-MM-dd'));
+      millingFormulas_(sh, r);
+      writeRow_(sh, r, { '状態': '予定' });
+      r++;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+}
+
+function columnLetter_(n) {
+  let s = '';
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+/* ---------------- タスク ---------------- */
+
+function saveTask_(p) {
+  const sh = sheet_('タスク');
+  const rows = rows_(sh);
+  if (p.id) {
+    const r = rows.find(x => String(x['ID']) === String(p.id));
+    if (!r) throw new Error('タスクが見つかりません');
+    const o = {};
+    ['status:状態', 'owner:担当', 'title:タスク', 'kind:区分', 'due:期限', 'note:備考'].forEach(s => {
+      const [k, h] = s.split(':'); if (p[k] !== undefined) o[h] = p[k];
+    });
+    writeRow_(sh, r._row, o);
+    return { ok: true, id: p.id };
+  }
+  if (!String(p.title || '').trim()) throw new Error('タスク名を入力してください');
+  let max = 0;
+  rows.forEach(r => { const m = String(r['ID']).match(/^T(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
+  const id = 'T' + ('0' + (max + 1)).slice(-2);
+  appendRows_(sh, [toArr_(sh, {
+    'ID': id, '区分': p.kind || '', 'タスク': p.title, '期限': p.due || '', '担当': p.owner || '',
+    '状態': '未着手', '備考': p.note || '',
+  })]);
+  return { ok: true, id: id };
+}
+
+/* ---------------- マスタ編集 ---------------- */
+
+function savePrice_(p) {
+  const sh = sheet_('価格マスタ');
+  const r = rows_(sh).find(x => String(x['規格']) === String(p.size));
+  if (!r) throw new Error('規格が見つかりません');
+  const o = {};
+  ['ex:税別', 'inc:税込', 'staff:社割税込', 'rsv:予約価格'].forEach(s => {
+    const [k, h] = s.split(':'); if (p[k] !== undefined && p[k] !== '') o[h] = n_(p[k]);
+  });
+  writeRow_(sh, r._row, o);
+  return { ok: true };
+}
+
+function saveStore_(p) {
+  const sh = sheet_('店舗マスタ');
+  const rows = rows_(sh);
+  const active = String(p.active) !== 'false';
+  if (p.id) {
+    const r = rows.find(x => String(x['店舗ID']) === String(p.id));
+    if (!r) throw new Error('店舗が見つかりません');
+    writeRow_(sh, r._row, { '店舗名': p.name, '区分': p.type || '', '有効': active });
+    return { ok: true, id: p.id };
+  }
+  if (!String(p.name || '').trim()) throw new Error('店舗名を入力してください');
+  let max = 0;
+  rows.forEach(r => { const m = String(r['店舗ID']).match(/^S(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
+  const id = 'S' + ('0' + (max + 1)).slice(-2);
+  appendRows_(sh, [toArr_(sh, { '店舗ID': id, '店舗名': p.name, '区分': p.type || '分配先', '有効': active })]);
+  return { ok: true, id: id };
+}
