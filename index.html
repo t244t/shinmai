@@ -85,6 +85,32 @@ a{color:var(--blue)}
 .millgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
 .calc{background:var(--rice);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;line-height:1.6}
 .btnrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:10px}
+/* 精米カレンダー */
+.calhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.calhd b{font-size:17px}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.calw{font-size:11px;text-align:center;color:var(--mute);padding:2px 0}
+.calw.sun{color:var(--red)}.calw.sat{color:var(--blue)}
+.cd{border:1px solid var(--line);background:#fff;border-radius:7px;min-height:62px;padding:3px 2px 4px;display:flex;flex-direction:column;
+  align-items:stretch;gap:2px;cursor:pointer;text-align:left;font:inherit;color:inherit}
+.cd.blank{border:0;background:none;cursor:default}
+.cd.mid{background:#fcf9f0}
+.cd.today{border:2px solid var(--green)}
+.cd .dn{font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline;padding:0 2px}
+.cd .dn small{font-size:9px;font-weight:600;color:var(--amber)}
+.cd.sun .dn>span{color:var(--red)}.cd.sat .dn>span{color:var(--blue)}
+.cd.tt{background:#f3f8f4}
+.ck{display:block;font-size:10px;line-height:1.25;border-radius:4px;padding:1px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.ck.plan{background:#fff;border:1px solid var(--green);color:var(--green)}
+.ck.brought{background:var(--amber2);color:var(--amber);border:1px solid #f0d9a8}
+.ck.done{background:var(--green);color:#fff}
+.ck.stop{background:#eee;color:#999;text-decoration:line-through}
+.ck.short{background:var(--red2);color:var(--red);border:1px solid #f3b8b1}
+.ck.bring{background:none;color:var(--amber);font-weight:600;padding:0 3px}
+.ck.pick{background:var(--blue2);color:var(--blue);font-weight:600}
+.callg{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:11px;color:var(--mute)}
+.callg .ck{display:inline-block}
+.card.flash{box-shadow:0 0 0 3px var(--amber)}
 /* 印刷プレビュー */
 #pv{position:fixed;inset:0;z-index:50;background:#e9e6de;display:flex;flex-direction:column}
 .pvbar{display:flex;align-items:center;gap:8px;background:var(--green);color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px}
@@ -644,12 +670,13 @@ function rMill(){
   const r5 = st.reduce((a,s)=>a+s.r5,0), r2 = st.reduce((a,s)=>a+s.r2,0);
   el.innerHTML = `<div class="card mute">毎週火・木に精米（${esc(ST('持込時間'))}に前日持ち込み）。${minKg()}kg以上から・支払いは現金。<br>
     参考：未受取の予約 5kg×${o5}・2kg×${o2}／店舗の残り 5kg×${r5}・2kg×${r2}</div>
+  <div class="card" id="millCal">${calHtml()}</div>
   <div class="list">${D.milling.map(m => {
     const v = millView(m);
     const past = m.date < td;
     const rest = v.expect - v.kg;
     const sp = (k,l) => `<div><label class="f">${l}</label>${stepper('M.'+m.date+'.'+k, v[k])}</div>`;
-    return `<div class="card ${past||v.status==='精米済'||v.status==='中止'?'past':''}">
+    return `<div class="card ${past||v.status==='精米済'||v.status==='中止'?'past':''}" id="mill-${m.date}">
       <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
         <div class="mute">持ち込み ${md(addDays(m.date,-1))}</div></div>
         <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
@@ -677,6 +704,49 @@ function rMill(){
     </div>`;}).join('')}</div>
   <h2>精米日を追加</h2>
   <div class="card row"><input type="date" id="millNew"><button class="btn" id="millAdd">追加</button></div>`;
+}
+
+/* 精米カレンダー（月表示） */
+const CAL = (() => { const d = new Date(); return { y:d.getFullYear(), m:d.getMonth() }; })();
+function calHtml(){
+  const y = CAL.y, m = CAL.m, td = today();
+  const first = new Date(y, m, 1).getDay(), days = new Date(y, m+1, 0).getDate();
+  const mill = {}; D.milling.forEach(x => mill[x.date] = x);
+  const pick = {}; rsvOpen().forEach(r => { if(r.pickup) pick[r.pickup] = (pick[r.pickup]||0) + 1; });
+  let cells = '';
+  for(let i=0;i<first;i++) cells += '<div class="cd blank"></div>';
+  for(let d=1; d<=days; d++){
+    const ds = y + '-' + pad(m+1) + '-' + pad(d), wd = (first + d - 1) % 7;
+    const x = mill[ds], next = mill[addDays(ds,1)];
+    let chips = '';
+    if(x){
+      const v = millView(x);
+      const cls = v.status==='中止' ? 'stop' : v.status==='精米済' ? 'done' : v.short ? 'short' : v.status==='持込済' ? 'brought' : 'plan';
+      chips += `<span class="ck ${cls}">🍚${v.base ? v.base+'kg' : '精米'}</span>`;
+    }
+    if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring">👜持込</span>';
+    if(pick[ds]) chips += `<span class="ck pick">受取${pick[ds]}</span>`;
+    const tag = d === 1 ? '上旬' : d === 11 ? '中旬' : d === 21 ? '下旬' : '';
+    cells += `<button class="cd ${d>10&&d<=20?'mid':''} ${wd===0?'sun':wd===6?'sat':''} ${(wd===2||wd===4)&&!x?'tt':''} ${ds===td?'today':''}" data-cal="${ds}">
+      <span class="dn"><span>${d}</span>${tag?`<small>${tag}</small>`:''}</span>${chips}</button>`;
+  }
+  return `<div class="calhd"><button class="btn sm ghost" data-calnav="-1">‹ 前月</button><b>${y}年${m+1}月</b>
+      <button class="btn sm ghost" data-calnav="1">翌月 ›</button></div>
+    <div class="calgrid">${WD.map((w,i)=>`<div class="calw ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}${cells}</div>
+    <div class="callg"><span><span class="ck plan">🍚予定</span></span><span><span class="ck brought">持込済</span></span>
+      <span><span class="ck done">精米済</span></span><span><span class="ck short">90kg未満</span></span>
+      <span><span class="ck bring">👜持込日</span></span><span><span class="ck pick">予約受取</span></span></div>
+    <div class="mute" style="margin-top:6px;font-size:12px">精米日をタップで詳細へ。空いている日をタップすると精米日を追加できます（薄緑＝火・木）。</div>`;
+}
+function calTap(ds){
+  const card = document.getElementById('mill-' + ds);
+  if(card){
+    card.scrollIntoView({ behavior:'smooth', block:'start' });
+    card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1600);
+    return;
+  }
+  if(!confirm(md(ds) + ' を精米日に追加しますか？')) return;
+  api('saveMilling', { date:ds, status:'予定' }).then(() => { toast(md(ds) + ' を追加しました'); load(); }).catch(err => toast(err.message));
 }
 
 async function saveMill(date){
@@ -972,6 +1042,9 @@ document.addEventListener('click', e => {
   if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
   if(b.dataset.msave){ saveMill(b.dataset.msave); return; }
   if(b.dataset.preq){ openPrint('req', b.dataset.preq); return; }
+  if(b.dataset.calnav){ CAL.m += Number(b.dataset.calnav); if(CAL.m < 0){ CAL.m = 11; CAL.y--; } if(CAL.m > 11){ CAL.m = 0; CAL.y++; }
+    const c = $('#millCal'); if(c) c.innerHTML = calHtml(); return; }
+  if(b.dataset.cal){ calTap(b.dataset.cal); return; }
   if(b.dataset.plbl){ openPrint('label', b.dataset.plbl); return; }
   if(b.id === 'pvClose'){ closePrint(); return; }
   if(b.id === 'pvPrint'){ window.print(); return; }
