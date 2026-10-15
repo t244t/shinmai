@@ -563,16 +563,16 @@ function saveStore_(p) {
 
 /* ---------------- 出荷表の写真を読む（Gemini） ---------------- */
 /**
- * スクリプトプロパティ：GEMINI_API_KEY（必須）、GEMINI_MODEL（任意・既定 gemini-flash-latest）
+ * スクリプトプロパティ：GEMINI_API_KEY（必須）、GEMINI_MODEL（任意・既定 gemini-flash-lite-latest。混雑・失敗時は gemini-flash-latest へ）
  * 写真は Drive の「新米_出荷表」フォルダに保存し、URL を返す
  */
 function readShipSheet_(b) {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
-  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-latest';
+  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-lite-latest';
   // 混雑時の予備（同じモデルで2回やり直してもだめなら軽量版へ）
-  const models = [model, model, 'gemini-flash-lite-latest'];
+  const models = [model, model, model === 'gemini-flash-latest' ? 'gemini-flash-lite-latest' : 'gemini-flash-latest'];
   const mime = b.mime || 'image/jpeg';
   const prompt = [
     'これは「ファームパーク伊都国 伊都国即売会」の手書きの出荷表の写真です。読み取って JSON だけを返してください。',
@@ -644,8 +644,8 @@ function geminiPing_() {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
-  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-latest';
-  const r = geminiCall_(key, [model, model, 'gemini-flash-lite-latest'], [{ text: '「OK」とだけ返してください。' }], false);
+  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-lite-latest';
+  const r = geminiCall_(key, [model, model === 'gemini-flash-latest' ? 'gemini-flash-lite-latest' : 'gemini-flash-latest'], [{ text: '「OK」とだけ返してください。' }], false);
   if (r.code !== 200) throw new Error('Gemini エラー (' + r.code + ')：' + r.txt.slice(0, 160) + '　試行：' + r.tries);
   return { ok: true, model: r.model, ms: r.ms, tries: r.tries };
 }

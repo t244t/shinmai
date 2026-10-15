@@ -56,7 +56,7 @@
 - 出荷先の列（マリナ・笹丘・ねぎぼうず・唐泊・本店・売店など）はアプリの店舗に自動で割り当て。変えた割り当ては次回から自動
 - 写真はドライブの「新米_出荷表」フォルダに保存し、記録の備考にリンクを残す
 - 同じ日・同じ回目の出荷表は二重に記録しない
-- 準備：Apps Script の「プロジェクトの設定」→「スクリプト プロパティ」に `GEMINI_API_KEY`（Gemini APIキー）を追加。モデルを変えるときは `GEMINI_MODEL`（既定 `gemini-flash-latest`）
+- 準備：Apps Script の「プロジェクトの設定」→「スクリプト プロパティ」に `GEMINI_API_KEY`（Gemini APIキー）を追加。モデルを変えるときは `GEMINI_MODEL`（既定 `gemini-flash-lite-latest`。速さ優先、失敗時は `gemini-flash-latest` で読み直し）
 
 ## 売上CSVの取り込み（店舗タブ）
 - 直売所システムや各店舗のレジから出した売上CSVを選ぶと、新米5kg・2kgの販売数を店舗ごとに記録します（UTF-8・Shift_JIS どちらも可）
