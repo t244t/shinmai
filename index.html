@@ -111,6 +111,9 @@ a{color:var(--blue)}
 .callg{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:11px;color:var(--mute)}
 .callg .ck{display:inline-block}
 .card.flash{box-shadow:0 0 0 3px var(--amber)}
+.calgrid.wk .cd{min-height:66px}
+.calgrid.wk .dn>span{font-size:11px}
+.calgrid.wk .dn small{color:inherit;font-size:9px}
 /* 印刷プレビュー */
 #pv{position:fixed;inset:0;z-index:50;background:#e9e6de;display:flex;flex-direction:column}
 .pvbar{display:flex;align-items:center;gap:8px;background:var(--green);color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px}
@@ -376,6 +379,8 @@ function rHome(){
       ${v.short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-v.base}kg</div>` : ''}
       ${!v.base ? '<div class="mute" style="margin-top:6px">袋数が未入力です（精米タブ）</div>' : ''}</div>`;
   } else h += '<div class="card mute">予定はありません</div>';
+  h += `<h2>これからの7日間</h2><div class="card" style="padding:8px">${weekHtml()}
+    <div class="mute" style="font-size:12px;margin-top:6px">タップで精米タブのカレンダーへ</div></div>`;
 
   h += `<h2>予約（未受取）</h2><div class="kpis">
     <div class="kpi"><b>${open.length}</b><small>件</small></div>
@@ -708,28 +713,43 @@ function rMill(){
 
 /* 精米カレンダー（月表示） */
 const CAL = (() => { const d = new Date(); return { y:d.getFullYear(), m:d.getMonth() }; })();
-function calHtml(){
-  const y = CAL.y, m = CAL.m, td = today();
-  const first = new Date(y, m, 1).getDay(), days = new Date(y, m+1, 0).getDate();
+function calMaps(){
   const mill = {}; D.milling.forEach(x => mill[x.date] = x);
   const pick = {}; rsvOpen().forEach(r => { if(r.pickup) pick[r.pickup] = (pick[r.pickup]||0) + 1; });
+  return { mill, pick };
+}
+/** カレンダーの1日分。label を渡すと日付の代わりに表示（ホームの7日間用） */
+function calCell(ds, maps, label){
+  const [yy, mm, d] = ds.split('-').map(Number), wd = new Date(yy, mm-1, d).getDay();
+  const x = maps.mill[ds], next = maps.mill[addDays(ds,1)];
+  let chips = '';
+  if(x){
+    const v = millView(x);
+    const cls = v.status==='中止' ? 'stop' : v.status==='精米済' ? 'done' : v.short ? 'short' : v.status==='持込済' ? 'brought' : 'plan';
+    chips += `<span class="ck ${cls}">🍚${v.base ? v.base+'kg' : '精米'}</span>`;
+  }
+  if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring">👜持込</span>';
+  if(maps.pick[ds]) chips += `<span class="ck pick">受取${maps.pick[ds]}</span>`;
+  const tag = label ? '' : d === 1 ? '上旬' : d === 11 ? '中旬' : d === 21 ? '下旬' : '';
+  return `<button class="cd ${d>10&&d<=20?'mid':''} ${wd===0?'sun':wd===6?'sat':''} ${(wd===2||wd===4)&&!x?'tt':''} ${ds===today()?'today':''}" data-cal="${ds}">
+    <span class="dn"><span>${label || d}</span>${tag?`<small>${tag}</small>`:''}</span>${chips}</button>`;
+}
+function weekHtml(){
+  const maps = calMaps(), td = today();
+  let cells = '';
+  for(let i=0;i<7;i++){
+    const ds = addDays(td, i), [, mm, d] = ds.split('-').map(Number);
+    cells += calCell(ds, maps, `${mm}/${d}<small style="font-weight:400;margin-left:1px">${WD[new Date(ds.replace(/-/g,'/')).getDay()]}</small>`);
+  }
+  return `<div class="calgrid wk">${cells}</div>`;
+}
+function calHtml(){
+  const y = CAL.y, m = CAL.m;
+  const first = new Date(y, m, 1).getDay(), days = new Date(y, m+1, 0).getDate();
+  const maps = calMaps();
   let cells = '';
   for(let i=0;i<first;i++) cells += '<div class="cd blank"></div>';
-  for(let d=1; d<=days; d++){
-    const ds = y + '-' + pad(m+1) + '-' + pad(d), wd = (first + d - 1) % 7;
-    const x = mill[ds], next = mill[addDays(ds,1)];
-    let chips = '';
-    if(x){
-      const v = millView(x);
-      const cls = v.status==='中止' ? 'stop' : v.status==='精米済' ? 'done' : v.short ? 'short' : v.status==='持込済' ? 'brought' : 'plan';
-      chips += `<span class="ck ${cls}">🍚${v.base ? v.base+'kg' : '精米'}</span>`;
-    }
-    if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring">👜持込</span>';
-    if(pick[ds]) chips += `<span class="ck pick">受取${pick[ds]}</span>`;
-    const tag = d === 1 ? '上旬' : d === 11 ? '中旬' : d === 21 ? '下旬' : '';
-    cells += `<button class="cd ${d>10&&d<=20?'mid':''} ${wd===0?'sun':wd===6?'sat':''} ${(wd===2||wd===4)&&!x?'tt':''} ${ds===td?'today':''}" data-cal="${ds}">
-      <span class="dn"><span>${d}</span>${tag?`<small>${tag}</small>`:''}</span>${chips}</button>`;
-  }
+  for(let d=1; d<=days; d++) cells += calCell(y + '-' + pad(m+1) + '-' + pad(d), maps);
   return `<div class="calhd"><button class="btn sm ghost" data-calnav="-1">‹ 前月</button><b>${y}年${m+1}月</b>
       <button class="btn sm ghost" data-calnav="1">翌月 ›</button></div>
     <div class="calgrid">${WD.map((w,i)=>`<div class="calw ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}${cells}</div>
@@ -739,6 +759,12 @@ function calHtml(){
     <div class="mute" style="margin-top:6px;font-size:12px">精米日をタップで詳細へ。空いている日をタップすると精米日を追加できます（薄緑＝火・木）。</div>`;
 }
 function calTap(ds){
+  if(tab !== 'mill'){
+    tab = 'mill'; lsSet(K.tab, tab);
+    const [y, m] = ds.split('-').map(Number); CAL.y = y; CAL.m = m - 1;
+    render(); window.scrollTo(0, 0);
+    if(!D.milling.some(x => x.date === ds)) return;   // 精米日でなければ精米タブを開くだけ
+  }
   const card = document.getElementById('mill-' + ds);
   if(card){
     card.scrollIntoView({ behavior:'smooth', block:'start' });
