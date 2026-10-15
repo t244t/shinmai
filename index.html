@@ -665,7 +665,7 @@ function csvCardHtml(){
 }
 /* ===== 出荷表の写真 → 配布の記録 ===== */
 const SHIP = { busy:false, data:null, date:'', round:1, photoUrl:'', counts:{}, err:'', image:'' };   // counts[size][colIdx]
-async function gasPost(body, timeout=90000){
+async function gasPost(body, timeout=240000){
   const url = gasUrl(); if(!url) throw new Error('GASのURLが未設定です（⚙設定）');
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeout);
   try{
@@ -692,12 +692,14 @@ function shrinkImage(file){
 }
 async function shipLoad(file, retry){
   if(!file && !retry) return;
-  Object.assign(SHIP, { busy:true, data:null, err:'', photoUrl:'' }); shipRefresh();
+  Object.assign(SHIP, { busy:true, data:null, err:'', photoUrl:'', t0: Date.now(), info:'' }); shipRefresh();
+  const tick = setInterval(() => { const e = $('#shipSec'); if(e) e.textContent = Math.round((Date.now() - SHIP.t0)/1000); }, 1000);
   try{
     const image = retry ? SHIP.image : await shrinkImage(file);
     SHIP.image = image;                                   // 失敗したら撮り直さずにやり直せるよう保持
     const res = await gasPost({ action:'readShipSheet', image, mime:'image/jpeg' });
     SHIP.image = '';
+    SHIP.info = `読み取り ${Math.round((res.ms||0)/1000)}秒（${res.model || ''}）`;
     const d = res.sheet || {};
     const y = new Date().getFullYear();
     SHIP.data = d; SHIP.photoUrl = res.photoUrl || '';
@@ -710,11 +712,12 @@ async function shipLoad(file, retry){
       (it.counts || []).forEach((n, i) => SHIP.counts[sz][i] = (SHIP.counts[sz][i] || 0) + (Number(n) || 0));
     });
   }catch(e){ SHIP.err = e.message; }
+  clearInterval(tick);
   SHIP.busy = false; shipRefresh();
 }
 function shipCols(){ return ((SHIP.data && SHIP.data.columns) || ['志摩直','笹丘直','マリナ','笹丘','ねぎぼうず','唐泊','本店','売店']).map(String); }
 function shipCardHtml(){
-  if(SHIP.busy) return '<div class="mute">写真を読み取っています…（10〜30秒ほど）</div>';
+  if(SHIP.busy) return `<div class="mute">写真を読み取っています… <b id="shipSec">${Math.round((Date.now() - (SHIP.t0 || Date.now()))/1000)}</b>秒（混んでいると1〜2分かかります）</div>`;
   if(!SHIP.data) return `${SHIP.err ? `<div class="banner">${esc(SHIP.err)}</div>` : ''}
     ${SHIP.err && SHIP.image ? '<button class="btn full" id="shipRetry" style="margin-bottom:8px">もう一度読み取る（同じ写真）</button>' : ''}
     <div class="mute">伊都国即売会の出荷表を撮影すると、日付と店舗ごとの5kg・2kgの数を読み取って「配布」として記録します。</div>
@@ -738,7 +741,7 @@ function shipCardHtml(){
       </table></div>` : '<div class="mute" style="margin-top:8px">新米（5kg・2kg）の行が見つかりませんでした。</div>'}
     ${others.length ? `<div class="mute" style="font-size:12px;margin-top:6px">新米以外の品目（記録しません）：${others.map(esc).join('、')}</div>` : ''}
     ${SHIP.photoUrl ? `<div class="mute" style="font-size:12px;margin-top:6px"><a href="${esc(SHIP.photoUrl)}" target="_blank" rel="noopener">写真はドライブの「新米_出荷表」に保存しました</a></div>` : ''}
-    <div class="mute" style="font-size:12px;margin-top:6px">手書きの読み間違いがないか、写真と見比べてから記録してください。数字は直せます。</div>
+    <div class="mute" style="font-size:12px;margin-top:6px">手書きの読み間違いがないか、写真と見比べてから記録してください。数字は直せます。${SHIP.info ? '　' + esc(SHIP.info) : ''}</div>
     <button class="btn full" id="shipSave" style="margin-top:10px" ${total?'':'disabled'}>配布として記録（${total}袋）</button>`;
 }
 function shipRefresh(){ const c = $('#shipCard'); if(c) c.innerHTML = shipCardHtml(); }
@@ -1240,7 +1243,9 @@ function rSet(){
     <input type="url" id="gasUrl" value="${esc(gasUrl())}" placeholder="https://script.google.com/macros/s/.../exec">
     <div class="row" style="margin-top:10px;gap:8px">
       <button class="btn" id="urlSave">保存して読み込む</button>
-      <button class="btn sub" id="ping">接続テスト</button></div></div>
+      <button class="btn sub" id="ping">接続テスト</button>
+      <button class="btn sub" id="gemPing">Gemini接続テスト</button></div>
+    <div class="mute" id="gemPingOut" style="font-size:12px;margin-top:6px"></div></div>
   ${D ? `<h2>価格</h2>${prices().map(p=>`<div class="card"><b>${esc(p.size)}</b>
     <div class="grid2">
       <div><label class="f">税別</label><input type="number" data-p="${esc(p.size)}" data-pk="ex" value="${p.ex}"></div>
@@ -1342,6 +1347,12 @@ document.addEventListener('click', e => {
   if(b.id === 'ping'){
     lsSet(K.url, $('#gasUrl').value.trim());
     api('ping', {}, 15000).then(r=>toast('接続OK（' + r.now + '）')).catch(err=>{ toast(err.message); });
+    return;
+  }
+  if(b.id === 'gemPing'){
+    const o = $('#gemPingOut'); o.textContent = 'Geminiに問い合わせ中…'; const t = Date.now();
+    api('geminiPing', {}, 240000).then(r => { o.textContent = `OK：${r.model}・${Math.round(r.ms/1000)}秒（試行 ${r.tries}）`; })
+      .catch(err => { o.textContent = `${err.message}（${Math.round((Date.now()-t)/1000)}秒）`; });
     return;
   }
   if(b.dataset.psave){

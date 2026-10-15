@@ -108,6 +108,7 @@ function doGet(e) {
     else if (a === 'savePrice') out = locked_(() => savePrice_(p));
     else if (a === 'saveStore') out = locked_(() => saveStore_(p));
     else if (a === 'saveSettings') out = locked_(() => saveSettings_(JSON.parse(p.items)));
+    else if (a === 'geminiPing') out = geminiPing_();
     else out = { ok: false, error: '不明なaction: ' + a };
   } catch (err) {
     out = { ok: false, error: String(err && err.message || err) };
@@ -585,26 +586,13 @@ function readShipSheet_(b) {
     ' "items":[{"name":"米5kg","price":3570,"counts":[8個の数]}]}',
     '今日は ' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd') + ' です。'
   ].join('\n');
-  const payload = JSON.stringify({
-    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b.image } }] }],
-    generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-  });
-  let code = 0, txt = '', used = model;
-  for (let i = 0; i < models.length; i++) {
-    used = models[i];
-    const res = UrlFetchApp.fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/' + used + ':generateContent?key=' + encodeURIComponent(key),
-      { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: payload });
-    code = res.getResponseCode(); txt = res.getContentText();
-    if (code === 200) break;
-    if ([429, 500, 503, 504].indexOf(code) < 0) break;   // 混雑・一時的なエラーだけやり直す
-    if (i < models.length - 1) Utilities.sleep(2000 * (i + 1));
-  }
-  if (code === 503 || code === 429) throw new Error('Geminiが混み合っています。少し時間をおいて「もう一度読み取る」を押してください（' + code + '）');
+  const r = geminiCall_(key, models, [{ text: prompt }, { inline_data: { mime_type: mime, data: b.image } }], true);
+  const code = r.code, txt = r.txt, used = r.model;
+  if ([429, 500, 503, 504].indexOf(code) >= 0) throw new Error('Geminiが混み合っているか、応答に時間がかかっています。少し時間をおいて「もう一度読み取る」を押してください（' + code + '・試行 ' + r.tries + '）');
   if (code !== 200) throw new Error('Gemini エラー (' + code + ')：' + txt.slice(0, 200));
   const j = JSON.parse(txt);
   const part = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts;
-  const raw = part ? part.map(x => x.text || '').join('') : '';
+  const raw = part ? part.filter(x => !x.thought).map(x => x.text || '').join('') : '';
   let sheet;
   try { sheet = JSON.parse(raw.replace(/^```json\s*|```$/g, '')); }
   catch (e) { throw new Error('読み取り結果を解釈できませんでした：' + raw.slice(0, 120)); }
@@ -617,5 +605,47 @@ function readShipSheet_(b) {
     const name = '出荷表_' + Utilities.formatDate(new Date(), TZ, 'yyyyMMdd_HHmmss') + (mime === 'image/png' ? '.png' : '.jpg');
     url = folder.createFile(Utilities.newBlob(Utilities.base64Decode(b.image), mime, name)).getUrl();
   } catch (e) { /* 保存できなくても読み取り結果は返す */ }
-  return { ok: true, sheet: sheet, photoUrl: url, model: used };
+  return { ok: true, sheet: sheet, photoUrl: url, model: used, ms: r.ms, tries: r.tries };
+}
+
+/**
+ * Gemini 呼び出し（混雑時はやり直し・予備モデルへ）。
+ * 表の読み取りに長い推論はいらないので thinking を最小にする（非対応のモデルなら自動で外す）
+ */
+function geminiCall_(key, models, parts, json) {
+  const t0 = Date.now();
+  let code = 0, txt = '', used = models[0], tries = [], thinking = true;
+  for (let i = 0; i < models.length; i++) {
+    used = models[i];
+    const gc = { temperature: 0 };
+    if (json) gc.responseMimeType = 'application/json';
+    if (thinking) gc.thinkingConfig = { thinkingBudget: 0 };
+    const t = Date.now();
+    let res;
+    try {
+      res = UrlFetchApp.fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/' + used + ':generateContent?key=' + encodeURIComponent(key),
+        { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+          payload: JSON.stringify({ contents: [{ parts: parts }], generationConfig: gc }) });
+      code = res.getResponseCode(); txt = res.getContentText();
+    } catch (e) { code = 504; txt = String(e); }
+    tries.push(used + ':' + code + ':' + Math.round((Date.now() - t) / 1000) + 's');
+    if (code === 200) break;
+    if (code === 400 && thinking && /thinking/i.test(txt)) { thinking = false; i--; continue; }  // thinking 非対応
+    if ([429, 500, 503, 504].indexOf(code) < 0) break;   // 混雑・一時的なエラーだけやり直す
+    if (Date.now() - t0 > 200000) break;                   // GAS の時間制限に余裕を残す
+    if (i < models.length - 1) Utilities.sleep(2000 * (i + 1));
+  }
+  return { code: code, txt: txt, model: used, ms: Date.now() - t0, tries: tries.join(' / ') };
+}
+
+/** ⚙設定の「Gemini接続テスト」用：短い文だけ送って応答時間とモデルを確認 */
+function geminiPing_() {
+  const props = PropertiesService.getScriptProperties();
+  const key = props.getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
+  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-latest';
+  const r = geminiCall_(key, [model, model, 'gemini-flash-lite-latest'], [{ text: '「OK」とだけ返してください。' }], false);
+  if (r.code !== 200) throw new Error('Gemini エラー (' + r.code + ')：' + r.txt.slice(0, 160) + '　試行：' + r.tries);
+  return { ok: true, model: r.model, ms: r.ms, tries: r.tries };
 }
