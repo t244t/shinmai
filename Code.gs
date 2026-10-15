@@ -66,6 +66,7 @@ const DEFAULTS = {
     ['S03', '市役所売店', '分配先', true],
     ['S04', 'イオンマリナ', '分配先', true],
     ['S05', 'イオン笹丘', '分配先', true],
+    ['S06', '唐泊漁協ストア', '分配先', true],
   ],
   'タスク': [
     ['T01', '打合せ', '新米販売 打合せ', '2026-10-14', '', '完了', ''],
@@ -135,6 +136,7 @@ function setup() {
   ss.setSpreadsheetTimeZone(TZ);
   Object.keys(HEAD).forEach(sheet_);
   ensureSettings_();
+  ensureStores_();
   const ml = sheet_('精米記録');
   rows_(ml).forEach(r => millingFormulas_(ml, r._row));
   return 'OK';
@@ -267,6 +269,20 @@ function ensureSettings_() {
   const have = {};
   rows_(sh).forEach(r => have[String(r['キー'])] = true);
   const add = DEFAULTS['設定'].filter(d => !have[d[0]]).map(d => toArr_(sh, { 'キー': d[0], '値': txt_(d[1]), '説明': d[2] }));
+  appendRows_(sh, add);
+}
+
+/** 初期の店舗のうち、店舗マスタに無いものを追加（名前で照合。既存は変えない） */
+function ensureStores_() {
+  const sh = sheet_('店舗マスタ');
+  const rows = rows_(sh);
+  const have = {}; let max = 0;
+  rows.forEach(r => {
+    have[String(r['店舗名'])] = true;
+    const m = String(r['店舗ID']).match(/^S(\d+)$/); if (m) max = Math.max(max, Number(m[1]));
+  });
+  const add = DEFAULTS['店舗マスタ'].filter(d => !have[d[1]])
+    .map(d => toArr_(sh, { '店舗ID': 'S' + ('0' + (++max)).slice(-2), '店舗名': d[1], '区分': d[2], '有効': d[3] }));
   appendRows_(sh, add);
 }
 
