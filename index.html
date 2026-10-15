@@ -111,6 +111,7 @@ a{color:var(--blue)}
 .callg{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:11px;color:var(--mute)}
 .callg .ck{display:inline-block}
 .card.flash{box-shadow:0 0 0 3px var(--amber)}
+.janpv{margin-top:6px}.janpv svg{display:block;max-width:100%}
 .calgrid.wk .cd{min-height:66px}
 .calgrid.wk .dn>span{font-size:11px}
 .calgrid.wk .dn small{color:inherit;font-size:9px}
@@ -842,6 +843,12 @@ function ean13Svg(code, mag){
     <rect width="113" height="${H}" fill="#fff"/><g fill="#000">${rects}</g>
     <g font-family="'OCR B','Consolas','Menlo',monospace" font-size="9" text-anchor="middle" fill="#000">${txt}</g></svg>` };
 }
+/** 設定画面のJAN見本（横向き） */
+function janPreview(v){
+  const j = janNorm(v);
+  if(j.error) return `<span class="mute" style="font-size:12px">${esc(j.error)}</span>`;
+  return ean13Svg(j.code, 1).svg + `<div class="mute" style="font-size:12px">${j.code}${String(v).replace(/[^0-9]/g,'').length===12?'（チェック数字を付けました）':''}</div>`;
+}
 /** シール右側のバーコード欄（縦向き） */
 function barcodeHtml(size){
   const mag = Number(LP.bcMag) || 0.8;
@@ -1077,7 +1084,8 @@ function rSet(){
       <button class="btn sm sub" data-stsave="${esc(s.id)}">保存</button></div></div>`).join('')}
   <div class="card"><div class="grid2"><input type="text" id="newStore" placeholder="新しい店舗名"><button class="btn sub" id="storeAdd">店舗を追加</button></div></div>` : ''}
   ${D ? (() => {
-    const fld = ([k,l]) => `<label class="f">${l}</label><input type="text" data-set="${k}" value="${esc(ST(k))}">`;
+    const fld = ([k,l]) => `<label class="f">${l}</label><input type="text" data-set="${k}" value="${esc(ST(k))}"${/^JAN/.test(k)?' inputmode="numeric"':''}>`
+      + (/^JAN/.test(k) ? `<div class="janpv" id="pv-${k}">${janPreview(ST(k))}</div>` : '');
     return `<h2>表示シール</h2><div class="card">
       ${[['名称','名称'],['原料区分','原料区分'],['産地','産地'],['品種','品種'],['産年','産年']].map(fld).join('')}
       <div class="grid2">${[['産地割合','産地の使用割合'],['品種割合','品種の使用割合']].map(fld).join('')}</div>
@@ -1184,6 +1192,7 @@ document.addEventListener('input', e => {
     clearTimeout(pvT); pvT = setTimeout(pvPages, 250); return;
   }
   if(i.dataset.f){ F[i.dataset.f] = i.value; return; }
+  if(i.dataset.set && /^JAN/.test(i.dataset.set)){ const pv = $('#pv-' + i.dataset.set); if(pv) pv.innerHTML = janPreview(i.value); return; }
   if(i.dataset.s){ S[i.dataset.s] = i.value; return; }
   if(i.dataset.t){ T[i.dataset.t] = i.value; return; }
   if(i.id === 'rsvQ'){ rsvQuery = i.value.trim(); clearTimeout(i._t); i._t = setTimeout(()=>{ rRsv(); const q=$('#rsvQ'); q.focus(); q.setSelectionRange(q.value.length,q.value.length); }, 300); return; }
