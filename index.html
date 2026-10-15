@@ -117,13 +117,14 @@ a{color:var(--blue)}
 .rq td.v{width:9mm;line-height:1.7;font-size:3mm}
 .rq .note{border-bottom:.6mm solid #000;text-align:center;padding:4mm 0 1.5mm;font-size:3.2mm}
 /* 表示シール */
-.lbl{position:absolute;box-sizing:border-box;padding:1.2mm}
-.lbl .in{width:100%;height:100%;overflow:hidden}
-.lbl table{width:100%;border-collapse:collapse;font-size:var(--lfs,3mm);line-height:1.2}
-.lbl th,.lbl td{border:.2mm solid #000;padding:.06em .3em;white-space:nowrap;text-align:left;font-weight:400}
-.lbl th{width:1%}
+.lbl{position:absolute;box-sizing:border-box;padding:1.1mm}
+.lbl .in{width:100%;height:100%;overflow:hidden;display:flex;align-items:center}
+.lbl table{width:100%;border-collapse:collapse;font-size:var(--lfs,3mm);line-height:1.15;border:.3mm solid #000;table-layout:auto;height:100%}
+.lbl th,.lbl td{padding:.06em .28em;white-space:nowrap;text-align:left;font-weight:400;border:0;color:#000}
+.lbl th{width:1%;font-size:inherit;color:#000;font-weight:600;text-align:center;border-right:.2mm solid #000;border-bottom:.2mm solid #000;padding:.06em .3em}
 .lbl td.c{text-align:center}
-.lbl td.nb1{border-bottom:0}.lbl td.nb2{border-top:0;border-bottom:0}.lbl td.nb3{border-top:0}
+.lbl td.hd{border:.2mm solid #000}
+.lbl tr.e td{border-bottom:.2mm solid #000}
 .screen .lbl{outline:.2mm dashed #bbb}
 .screen .lbl.skip{background:repeating-linear-gradient(45deg,#f3f3f3,#f3f3f3 2mm,#fff 2mm,#fff 4mm)}
 @media print{
@@ -228,7 +229,9 @@ const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:
 let rsvFilter = '未', rsvQuery = '';
 const S = { store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0, by: lsGet(K.by)||'', note:'' }; // 店舗入力
 const M = {};                      // 精米の編集中データ { date: {gen,b5k,b5m,b2k,b2m,pay,status,note} }
-const DEF_SET = { '玄米袋kg':30, '歩留まり':0.9, '名称':'精米', '品種':'', '産地':'福岡県', '産年':'令和8年産',
+const DEF_SET = { '玄米袋kg':30, '歩留まり':0.9, '名称':'精　　米', '原料区分':'単一原料米', '品種':'元気つくし', '産地':'福岡県', '産年':'令和8年',
+  '産地割合':'100%', '品種割合':'100%', '産年割合':'100%', '確認文言1':'JA農産物検査証明による確認米', '確認割合1':'10割100%',
+  '確認文言2':'苗の購入・栽培作業記録による確認米', '確認割合2':'10割100%', '販売者電話':'092-324-8050', 'シール単価':1.3,
   '会社名':'株式会社 農・みのり', '郵便番号':'〒819-1152', '住所':'福岡県糸島市飯原1675番地1', 'TEL':'092-323-8700',
   'FAX':'092-322-7661', '登録番号':'T3290001095842', '依頼先':'産栄株式会社　米のます屋　様',
   '依頼書注記':'※　余りは、無地袋 ２Kg　に入れて下さい。　宜しくお願いします。', '持込時間':'9:00〜17:00' };
@@ -540,20 +543,29 @@ async function saveMill(date){
 }
 
 /* ===== 印刷（精米加工依頼書・表示シール） ===== */
+// 面付けは「精米表示シール_A4各種.xlsx」と同じ（A4・余白なし）。pt はテンプレートの文字サイズ
 const LBL_PRESETS = [
-  { id:'12', name:'12面（2列×6段）86.4×42.3mm', cols:2, rows:6, w:86.4, h:42.3, top:21.6, left:18.6, gx:0, gy:0 },
-  { id:'10', name:'10面（2列×5段）86.4×50.8mm', cols:2, rows:5, w:86.4, h:50.8, top:21.5, left:18.6, gx:0, gy:0 },
-  { id:'8',  name:'8面（2列×4段）105×74.25mm', cols:2, rows:4, w:105, h:74.25, top:0, left:0, gx:0, gy:0 },
-  { id:'4',  name:'4面（2列×2段）105×148.5mm', cols:2, rows:2, w:105, h:148.5, top:0, left:0, gx:0, gy:0 },
-  { id:'18', name:'18面（3列×6段）70×42.3mm', cols:3, rows:6, w:70, h:42.3, top:21.6, left:0, gx:0, gy:0 },
-  { id:'21', name:'21面（3列×7段）70×42.3mm', cols:3, rows:7, w:70, h:42.3, top:0.45, left:0, gx:0, gy:0 },
-  { id:'24', name:'24面（3列×8段）70×37.1mm', cols:3, rows:8, w:70, h:37.125, top:0, left:0, gx:0, gy:0 },
+  { id:'2',  name:'2面（1列×2段）210×148.5mm',  cols:1, rows:2, w:210, h:148.5, pt:16 },
+  { id:'4',  name:'4面（2列×2段）105×148.5mm',  cols:2, rows:2, w:105, h:148.5, pt:11 },
+  { id:'6',  name:'6面（2列×3段）105×99mm',     cols:2, rows:3, w:105, h:99,    pt:11 },
+  { id:'8',  name:'8面（2列×4段）105×74.25mm',  cols:2, rows:4, w:105, h:74.25, pt:11 },
+  { id:'10', name:'10面（2列×5段）105×59.4mm',  cols:2, rows:5, w:105, h:59.4,  pt:9 },
+  { id:'12', name:'12面（3列×4段）70×74.25mm',  cols:3, rows:4, w:70,  h:74.25, pt:7 },
+  { id:'18', name:'18面（3列×6段）70×49.5mm',   cols:3, rows:6, w:70,  h:49.5,  pt:7 },
+  { id:'21', name:'21面（3列×7段）70×42.4mm',   cols:3, rows:7, w:70,  h:42.4,  pt:6 },
+  { id:'24', name:'24面（3列×8段）70×37.125mm', cols:3, rows:8, w:70,  h:37.125, pt:6 },
   { id:'custom', name:'カスタム（寸法を入力）' },
-];
-const LKEY = 'shinmai_label_v1';
-const LP = Object.assign({ preset:'12', cols:2, rows:6, w:86.4, h:42.3, top:21.6, left:18.6, gx:0, gy:0, dx:0, dy:0 }, lsJ(LKEY, {}));
+].map(p => Object.assign({ top:0, left:0, gx:0, gy:0 }, p));
+const LKEY = 'shinmai_label_v2';
+const LP = Object.assign({ preset:'18', cols:3, rows:6, w:70, h:49.5, top:0, left:0, gx:0, gy:0, dx:0, dy:0 }, lsJ(LKEY, {}));
 const PV = { mode:'', rec:'', date:'', reqDate:'', n5:0, n2:0, skip:1, millDate:'' };
 
+/** 精米時期：令和8年　10月　上旬 */
+function millPeriod(s){
+  if(!s) return '';
+  const [y,m] = s.split('-').map(Number);
+  return '令和' + (y-2018) + '年　' + m + '月　' + period(s);
+}
 function wareki(s, short){
   if(!s) return '';
   const [y,m,d] = s.split('-').map(Number);
@@ -586,7 +598,7 @@ function pvControls(){
   }
   const g = lblGeom(), per = g.cols*g.rows, custom = LP.preset === 'custom';
   const num = (k,l,step) => `<div><label class="f">${l}</label><input type="number" step="${step||0.1}" data-lp="${k}" value="${LP[k]}"></div>`;
-  c.innerHTML = `${!ST('品種') ? '<div class="banner" style="margin-bottom:8px">品種が未設定です。⚙設定の「依頼書・表示シール」で入力してください。</div>' : ''}
+  c.innerHTML = `${!ST('品種') ? '<div class="banner" style="margin-bottom:8px">品種が未設定です。⚙設定の「表示シール」で入力してください。</div>' : ''}
     <label class="f">シール用紙</label>
     <select data-lp="preset">${LBL_PRESETS.map(p=>`<option value="${p.id}" ${LP.preset===p.id?'selected':''}>${p.name}</option>`).join('')}</select>
     ${custom ? `<div class="g4">${num('cols','列',1)}${num('rows','段',1)}${num('w','幅mm')}${num('h','高さmm')}
@@ -597,7 +609,7 @@ function pvControls(){
       <div><label class="f">開始位置（1〜${per}）</label><input type="number" min="1" max="${per}" data-pv="skip" value="${PV.skip}"></div>
     </div>
     <div class="g3">
-      <div><label class="f">精米年月日</label><input type="date" data-pv="millDate" value="${PV.millDate}"></div>
+      <div><label class="f">精米日（→精米時期）</label><input type="date" data-pv="millDate" value="${PV.millDate}"></div>
       ${num('dx','位置調整 →mm')}${num('dy','位置調整 ↓mm')}
     </div>
     <div class="mute" id="pvInfo" style="margin-top:6px"></div>`;
@@ -624,16 +636,22 @@ function reqCopy(v, left){
 }
 
 function labelHtml(size){
+  const j = (a, b) => [a, b].filter(x => String(x||'').trim() !== '').join('　');
+  const conf = [[ST('確認文言1'), ST('確認割合1')], [ST('確認文言2'), ST('確認割合2')]]
+    .filter(([t]) => String(t||'').trim() !== '').map(([t, r]) => j(t, r));
+  const span = 3 + conf.length;
+  const rows = conf.map((t, i) => `<tr class="${i === conf.length-1 ? 'e' : ''}"><td colspan="3" class="w">${esc(t)}</td></tr>`).join('');
   return `<table>
-    <tr><th>名称</th><td colspan="3">${esc(ST('名称'))}</td></tr>
-    <tr><th rowspan="3">原料玄米</th><td class="c">産地</td><td class="c">品種</td><td class="c">産年</td></tr>
-    <tr><td colspan="3" class="c">単一原料米</td></tr>
-    <tr><td class="c">${esc(ST('産地'))}</td><td class="c">${esc(ST('品種'))}</td><td class="c">${esc(ST('産年'))}</td></tr>
-    <tr><th>内容量</th><td colspan="3">${esc(size)}</td></tr>
-    <tr><th>精米年月日</th><td colspan="3">${wareki(PV.millDate)}</td></tr>
-    <tr><th rowspan="3">販売者</th><td colspan="3" class="nb1">${esc(ST('会社名'))}</td></tr>
-    <tr><td colspan="3" class="nb2">${esc(ST('住所'))}</td></tr>
-    <tr><td colspan="3" class="nb3">TEL ${esc(ST('TEL'))}</td></tr></table>`;
+    <tr class="e"><th>名　　称</th><td colspan="3" class="c">${esc(ST('名称'))}</td></tr>
+    <tr><th rowspan="${span}">原料玄米</th><td class="c hd">産　地</td><td class="c hd">品　種</td><td class="c hd">産　年</td></tr>
+    <tr><td class="c">${esc(ST('原料区分'))}</td><td class="c">${esc(ST('品種'))}</td><td class="c">${esc(ST('産年'))}</td></tr>
+    <tr class="${conf.length ? '' : 'e'}"><td>${esc(j(ST('産地'), ST('産地割合')))}</td><td class="c">${esc(ST('品種割合'))}</td><td class="c">${esc(ST('産年割合'))}</td></tr>
+    ${rows}
+    <tr class="e"><th>内 容 量</th><td colspan="3" class="c">${esc(size)}</td></tr>
+    <tr class="e"><th>精米時期</th><td colspan="3" class="c">${millPeriod(PV.millDate)}</td></tr>
+    <tr><th rowspan="3" style="border-bottom:0">販 売 者</th><td colspan="3">${esc(ST('会社名'))}</td></tr>
+    <tr><td colspan="3" class="w">${esc(ST('住所'))}</td></tr>
+    <tr><td colspan="3">電話番号　${esc(ST('販売者電話'))}</td></tr></table>`;
 }
 
 function pvPages(){
@@ -675,16 +693,21 @@ function fitLabels(){
   const info = $('#pvInfo');
   if(!first){ if(info) info.textContent = '印刷するシールがありません'; return; }
   const t = first.querySelector('table');
-  let fs = 4.2;
+  const g = lblGeom();
+  // テンプレートの文字サイズ（8pt未満なら8pt）を上限に、入りきる大きさまで縮める
+  let fs = Math.max(g.pt || 11, 8) * 25.4 / 72;
   for(; fs > 1.2; fs -= 0.05){
     $('#pvScale').style.setProperty('--lfs', fs.toFixed(2)+'mm');
-    if(t.scrollWidth <= first.clientWidth && t.offsetHeight <= first.clientHeight) break;
+    if(t.scrollWidth <= first.clientWidth + 0.5 && t.offsetHeight <= first.clientHeight + 0.5) break;
   }
   const pt = fs * 72 / 25.4;
   const n = (Math.floor(+PV.n5||0) + Math.floor(+PV.n2||0));
   const pages = document.querySelectorAll('#pvScale .page').length;
-  if(info) info.innerHTML = `${n}枚・用紙${pages}枚　文字 約${pt.toFixed(1)}pt` +
-    (pt < 8 ? '　<span class="warn">8pt未満です。大きいシールの用紙を選んでください</span>' : '');
+  const per = (+g.cols||1) * (+g.rows||1);
+  const sheetCost = Number(ST('シール単価')) * 18;            // A4 1枚の用紙代（18面の1面単価×18）
+  const cost = Math.round(sheetCost * pages);
+  if(info) info.innerHTML = `${n}枚・用紙${pages}枚（用紙代 約${cost.toLocaleString()}円／1面 ${(sheetCost/per).toFixed(1)}円）　文字 約${pt.toFixed(1)}pt` +
+    (pt < 8 ? '<br><span class="warn">文字が8pt未満です。5kg・2kg袋の表示は8pt以上が基準なので、面数の少ない用紙をおすすめします</span>' : '');
 }
 
 function pvScale(land){
@@ -754,12 +777,20 @@ function rSet(){
     <div class="row between" style="margin-top:8px"><label class="row"><input type="checkbox" data-sid="${esc(s.id)}" data-sk="active" ${s.active?'checked':''}> 使う</label>
       <button class="btn sm sub" data-stsave="${esc(s.id)}">保存</button></div></div>`).join('')}
   <div class="card"><div class="grid2"><input type="text" id="newStore" placeholder="新しい店舗名"><button class="btn sub" id="storeAdd">店舗を追加</button></div></div>` : ''}
-  ${D ? `<h2>依頼書・表示シール</h2><div class="card">
-    ${[['名称','名称（シール）'],['品種','品種'],['産地','産地'],['産年','産年（例：令和8年産）'],['会社名','会社名'],['郵便番号','郵便番号'],
-       ['住所','住所'],['TEL','TEL'],['FAX','FAX'],['登録番号','登録番号'],['依頼先','依頼先（精米所）'],['依頼書注記','依頼書の注記'],
-       ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.9＝90%）']]
-      .map(([k,l])=>`<label class="f">${l}</label><input type="text" data-set="${k}" value="${esc(ST(k))}">`).join('')}
-    <button class="btn full" id="infoSave" style="margin-top:12px">保存</button></div>` : ''}
+  ${D ? (() => {
+    const fld = ([k,l]) => `<label class="f">${l}</label><input type="text" data-set="${k}" value="${esc(ST(k))}">`;
+    return `<h2>表示シール</h2><div class="card">
+      ${[['名称','名称'],['原料区分','原料区分'],['産地','産地'],['品種','品種'],['産年','産年']].map(fld).join('')}
+      <div class="grid2">${[['産地割合','産地の使用割合'],['品種割合','品種の使用割合']].map(fld).join('')}</div>
+      ${[['産年割合','産年の使用割合'],['確認文言1','確認文言①（検査米の場合）'],['確認割合1','確認①の割合'],
+         ['確認文言2','確認文言②（未検査米の根拠）'],['確認割合2','確認②の割合'],['会社名','販売者 名称'],['住所','販売者 住所'],
+         ['販売者電話','販売者 電話番号'],['シール単価','用紙代（18面の1面あたり・円）']].map(fld).join('')}
+      <div class="mute" style="margin-top:6px">確認文言や割合は空欄にするとシールに出ません。</div></div>
+    <h2>精米加工依頼書</h2><div class="card">
+      ${[['依頼先','依頼先（精米所）'],['郵便番号','郵便番号'],['TEL','TEL'],['FAX','FAX'],['登録番号','登録番号'],['依頼書注記','依頼書の注記'],
+         ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.9＝90%）']].map(fld).join('')}
+      <div class="mute" style="margin-top:6px">会社名・住所は表示シールと共通です。</div>
+      <button class="btn full" id="infoSave" style="margin-top:12px">保存</button></div>`; })() : ''}
   <h2>この端末</h2><div class="card">
     <div class="mute">未送信の記録：${Q.length}件　${Q.length?'<button class="btn sm" id="flushNow">今すぐ送信</button>':''}</div>
     <div class="mute" style="margin-top:6px">未送信が残っている間は、ブラウザのサイトデータを消さないでください。</div></div>`;
@@ -800,7 +831,7 @@ document.addEventListener('click', e => {
   if(b.id === 'infoSave'){
     const items = [...document.querySelectorAll('[data-set]')].map(i => {
       const k = i.dataset.set, v = i.value.trim();
-      return [k, (k==='玄米袋kg'||k==='歩留まり') && v !== '' && !isNaN(v) ? Number(v) : v];
+      return [k, (k==='玄米袋kg'||k==='歩留まり'||k==='シール単価') && v !== '' && !isNaN(v) ? Number(v) : v];
     });
     api('saveSettings', { items: JSON.stringify(items) }).then(()=>{ toast('保存しました'); load(); })
       .catch(err=>toast(err.message + '（GASの更新が必要かもしれません）'));
