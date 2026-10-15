@@ -570,6 +570,8 @@ function readShipSheet_(b) {
   const key = props.getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
   const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-latest';
+  // 混雑時の予備（同じモデルで2回やり直してもだめなら軽量版へ）
+  const models = [model, model, 'gemini-flash-lite-latest'];
   const mime = b.mime || 'image/jpeg';
   const prompt = [
     'これは「ファームパーク伊都国 伊都国即売会」の手書きの出荷表の写真です。読み取って JSON だけを返してください。',
@@ -583,15 +585,22 @@ function readShipSheet_(b) {
     ' "items":[{"name":"米5kg","price":3570,"counts":[8個の数]}]}',
     '今日は ' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd') + ' です。'
   ].join('\n');
-  const res = UrlFetchApp.fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b.image } }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-      }),
-    });
-  const code = res.getResponseCode(), txt = res.getContentText();
+  const payload = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b.image } }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+  });
+  let code = 0, txt = '', used = model;
+  for (let i = 0; i < models.length; i++) {
+    used = models[i];
+    const res = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + used + ':generateContent?key=' + encodeURIComponent(key),
+      { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: payload });
+    code = res.getResponseCode(); txt = res.getContentText();
+    if (code === 200) break;
+    if ([429, 500, 503, 504].indexOf(code) < 0) break;   // 混雑・一時的なエラーだけやり直す
+    if (i < models.length - 1) Utilities.sleep(2000 * (i + 1));
+  }
+  if (code === 503 || code === 429) throw new Error('Geminiが混み合っています。少し時間をおいて「もう一度読み取る」を押してください（' + code + '）');
   if (code !== 200) throw new Error('Gemini エラー (' + code + ')：' + txt.slice(0, 200));
   const j = JSON.parse(txt);
   const part = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts;
@@ -608,5 +617,5 @@ function readShipSheet_(b) {
     const name = '出荷表_' + Utilities.formatDate(new Date(), TZ, 'yyyyMMdd_HHmmss') + (mime === 'image/png' ? '.png' : '.jpg');
     url = folder.createFile(Utilities.newBlob(Utilities.base64Decode(b.image), mime, name)).getUrl();
   } catch (e) { /* 保存できなくても読み取り結果は返す */ }
-  return { ok: true, sheet: sheet, photoUrl: url, model: model };
+  return { ok: true, sheet: sheet, photoUrl: url, model: used };
 }

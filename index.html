@@ -664,7 +664,7 @@ function csvCardHtml(){
     <div class="mute" style="margin-top:6px">同じCSVを同じ計上日でもう一度取り込んでも二重には記録されません。</div>`;
 }
 /* ===== 出荷表の写真 → 配布の記録 ===== */
-const SHIP = { busy:false, data:null, date:'', round:1, photoUrl:'', counts:{}, err:'' };   // counts[size][colIdx]
+const SHIP = { busy:false, data:null, date:'', round:1, photoUrl:'', counts:{}, err:'', image:'' };   // counts[size][colIdx]
 async function gasPost(body, timeout=90000){
   const url = gasUrl(); if(!url) throw new Error('GASのURLが未設定です（⚙設定）');
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeout);
@@ -690,12 +690,14 @@ function shrinkImage(file){
     img.src = u;
   });
 }
-async function shipLoad(file){
-  if(!file) return;
+async function shipLoad(file, retry){
+  if(!file && !retry) return;
   Object.assign(SHIP, { busy:true, data:null, err:'', photoUrl:'' }); shipRefresh();
   try{
-    const image = await shrinkImage(file);
+    const image = retry ? SHIP.image : await shrinkImage(file);
+    SHIP.image = image;                                   // 失敗したら撮り直さずにやり直せるよう保持
     const res = await gasPost({ action:'readShipSheet', image, mime:'image/jpeg' });
+    SHIP.image = '';
     const d = res.sheet || {};
     const y = new Date().getFullYear();
     SHIP.data = d; SHIP.photoUrl = res.photoUrl || '';
@@ -714,6 +716,7 @@ function shipCols(){ return ((SHIP.data && SHIP.data.columns) || ['志摩直','�
 function shipCardHtml(){
   if(SHIP.busy) return '<div class="mute">写真を読み取っています…（10〜30秒ほど）</div>';
   if(!SHIP.data) return `${SHIP.err ? `<div class="banner">${esc(SHIP.err)}</div>` : ''}
+    ${SHIP.err && SHIP.image ? '<button class="btn full" id="shipRetry" style="margin-bottom:8px">もう一度読み取る（同じ写真）</button>' : ''}
     <div class="mute">伊都国即売会の出荷表を撮影すると、日付と店舗ごとの5kg・2kgの数を読み取って「配布」として記録します。</div>
     <input type="file" id="shipFile" accept="image/*" capture="environment" style="margin-top:8px">`;
   const cols = shipCols(), mp = csvStoreMap();
@@ -1304,6 +1307,7 @@ document.addEventListener('click', e => {
   if(b.id === 'shopSubmit'){ submitShop(); return; }
   if(b.id === 'csvImport'){ csvImport(); return; }
   if(b.id === 'shipSave'){ shipSave(); return; }
+  if(b.id === 'shipRetry'){ shipLoad(null, true); return; }
   if(b.id === 'shipClear'){ Object.assign(SHIP, { data:null, counts:{}, err:'' }); shipRefresh(); return; }
   if(b.id === 'csvClear'){ Object.assign(CSV, { file:'', rows:[] }); csvRefresh(); return; }
   if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
