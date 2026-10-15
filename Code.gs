@@ -115,6 +115,22 @@ function doGet(e) {
   return reply_(out, cb);
 }
 
+/**
+ * POST（本文は JSON 文字列。Content-Type: text/plain で送るのでプリフライトなし）
+ * 画像のように GET の URL に乗らない大きなデータ用
+ */
+function doPost(e) {
+  let out;
+  try {
+    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (body.action === 'readShipSheet') out = readShipSheet_(body);
+    else out = { ok: false, error: '不明なaction: ' + body.action };
+  } catch (err) {
+    out = { ok: false, error: String(err && err.message || err) };
+  }
+  return reply_(out);
+}
+
 function reply_(out, cb) {
   const json = JSON.stringify(out);
   if (cb) {
@@ -542,4 +558,55 @@ function saveStore_(p) {
   const id = 'S' + ('0' + (max + 1)).slice(-2);
   appendRows_(sh, [toArr_(sh, { '店舗ID': id, '店舗名': p.name, '区分': p.type || '分配先', '有効': active })]);
   return { ok: true, id: id };
+}
+
+/* ---------------- 出荷表の写真を読む（Gemini） ---------------- */
+/**
+ * スクリプトプロパティ：GEMINI_API_KEY（必須）、GEMINI_MODEL（任意・既定 gemini-flash-latest）
+ * 写真は Drive の「新米_出荷表」フォルダに保存し、URL を返す
+ */
+function readShipSheet_(b) {
+  const props = PropertiesService.getScriptProperties();
+  const key = props.getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
+  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-latest';
+  const mime = b.mime || 'image/jpeg';
+  const prompt = [
+    'これは「ファームパーク伊都国 伊都国即売会」の手書きの出荷表の写真です。読み取って JSON だけを返してください。',
+    '・右上に「◯月◯日◯曜日（◯回目）」がある。月・日・曜日・回目を数字/文字で読む。',
+    '・表の左は「出荷品等」（品名。例：米5kg、米2kg）と「希望価格」（円）。',
+    '・右側は出荷先の列が左から順に8列：Ⓐ志摩直、Ⓑ笹丘直、①マリナ、②笹丘、③ねぎぼうず、④唐泊、⑤本店、⑥（手書きの店名。例：売店）。',
+    '  列名は用紙に書かれているとおりに読む（⑥は手書きの文字）。',
+    '・各マスは上段が「円」、下段が「個」。下段の個数（手書きの数字）を読む。空欄は 0。',
+    '・品名が空の行は含めない。',
+    '形式：{"month":数,"day":数,"weekday":"火","round":数,"columns":[8個の列名],',
+    ' "items":[{"name":"米5kg","price":3570,"counts":[8個の数]}]}',
+    '今日は ' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd') + ' です。'
+  ].join('\n');
+  const res = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b.image } }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+      }),
+    });
+  const code = res.getResponseCode(), txt = res.getContentText();
+  if (code !== 200) throw new Error('Gemini エラー (' + code + ')：' + txt.slice(0, 200));
+  const j = JSON.parse(txt);
+  const part = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts;
+  const raw = part ? part.map(x => x.text || '').join('') : '';
+  let sheet;
+  try { sheet = JSON.parse(raw.replace(/^```json\s*|```$/g, '')); }
+  catch (e) { throw new Error('読み取り結果を解釈できませんでした：' + raw.slice(0, 120)); }
+
+  // 写真を Drive に保存（記録用）
+  let url = '';
+  try {
+    const it = DriveApp.getFoldersByName('新米_出荷表');
+    const folder = it.hasNext() ? it.next() : DriveApp.createFolder('新米_出荷表');
+    const name = '出荷表_' + Utilities.formatDate(new Date(), TZ, 'yyyyMMdd_HHmmss') + (mime === 'image/png' ? '.png' : '.jpg');
+    url = folder.createFile(Utilities.newBlob(Utilities.base64Decode(b.image), mime, name)).getUrl();
+  } catch (e) { /* 保存できなくても読み取り結果は返す */ }
+  return { ok: true, sheet: sheet, photoUrl: url, model: model };
 }
