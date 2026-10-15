@@ -452,6 +452,8 @@ function rShop(){
     <button class="btn full" id="shopSubmit" style="margin-top:14px">記録する</button>
     <div class="mute" style="margin-top:6px">電波がなくても記録できます。つながったら自動で送信します。</div>
   </div>
+  <h2>レジのCSVを取り込む</h2>
+  <div class="card" id="csvCard">${csvCardHtml()}</div>
   <h2>店舗別の状況</h2>
   <div class="card scroll"><table>
     <tr><th>店舗</th><th>配布</th><th>販売</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
@@ -465,6 +467,149 @@ function rShop(){
         ${l.pending?'<span class="badge a">未送信</span>':''}</div>
       <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending?1:0}">取消</button></div>`).join('')
     : '<div class="card mute">記録はまだありません</div>'}</div>`;
+}
+
+/* ===== CSV取り込み（店舗のレジデータ） ===== */
+const CSVK = 'shinmai_csvmap_v1';
+const CSV = { file:'', rows:[], header:true, map:{}, fixedStore:'', keyword:'米', kindCol:'', busy:false };
+
+const nz = v => String(v == null ? '' : v).normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+function hash36(str){ let h = 0x811c9dc5; for(let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h>>>0).toString(36); }
+
+function csvDecode(buf){
+  try { return new TextDecoder('utf-8', { fatal:true }).decode(buf).replace(/^﻿/, ''); }
+  catch(e){ return new TextDecoder('shift_jis').decode(buf); }   // レジのCSVに多い Shift_JIS
+}
+function csvParse(text){
+  const rows = []; let row = [], f = '', q = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(q){ if(c === '"'){ if(text[i+1] === '"'){ f += '"'; i++; } else q = false; } else f += c; continue; }
+    if(c === '"') q = true;
+    else if(c === ',' || c === '\t'){ row.push(f); f = ''; }
+    else if(c === '\n' || c === '\r'){ if(c === '\r' && text[i+1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if(f !== '' || row.length){ row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => String(x).trim() !== ''));
+}
+function csvDate(v){
+  const t = String(v||'').normalize('NFKC');
+  let m = t.match(/(\d{4})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/);
+  if(m) return m[1]+'-'+pad(m[2])+'-'+pad(m[3]);
+  m = t.match(/^(\d{4})(\d{2})(\d{2})/);
+  if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m = t.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/);
+  if(m) return new Date().getFullYear()+'-'+pad(m[1])+'-'+pad(m[2]);
+  return '';
+}
+function csvSize(name){
+  const n = nz(name);
+  if(/(^|[^0-9.])5(kg|キロ)/.test(n)) return '5kg';
+  if(/(^|[^0-9.])2(kg|キロ)/.test(n)) return '2kg';
+  return '';
+}
+function csvStore(v){
+  const n = nz(v); if(!n) return '';
+  const hit = activeStores().find(s => { const sn = nz(s.name); return n.includes(sn) || sn.includes(n); });
+  return hit ? hit.name : '';
+}
+function csvHeaders(){
+  if(!CSV.rows.length) return [];
+  const w = Math.max(...CSV.rows.slice(0, 20).map(r => r.length));
+  return Array.from({ length:w }, (_, i) => CSV.header ? (String(CSV.rows[0][i] ?? '').trim() || `列${i+1}`) : `列${i+1}`);
+}
+function csvSig(){ return hash36(csvHeaders().join('|')); }
+function csvGuess(){
+  const h = csvHeaders();
+  // 先に書いたものから順に探す。コード・ID・金額の列は除く
+  const find = (...res) => { for(const re of res){ const i = h.findIndex(x => re.test(x) && !/コード|code|ＩＤ|id|金額|単価/i.test(x)); if(i >= 0) return String(i); } return ''; };
+  return { date: find(/売上日|取引日|販売日|日付/, /年月日|date/i), store: find(/店舗名|店名/, /店舗|売場|store/i),
+           item: find(/商品名|品名/, /商品|メニュー|item/i), qty: find(/販売数量|数量/, /個数|点数|販売数|qty/i), kind: find(/取引区分|区分|種別/) };
+}
+
+/** CSV の各行を記録に変換。ok=取り込む行, skip=対象外（理由つき） */
+function csvBuild(){
+  const ok = [], skip = [], seen = {};
+  const m = CSV.map, body = CSV.header ? CSV.rows.slice(1) : CSV.rows;
+  const kw = nz(CSV.keyword);
+  body.forEach((r, i) => {
+    const line = r.join(',');
+    seen[line] = (seen[line] || 0) + 1;                       // 同じ内容の行が複数あっても区別する
+    const item = m.item !== '' && m.item != null ? r[m.item] : '';
+    const size = csvSize(item);
+    if(kw && !nz(item).includes(kw)) return skip.push({ i, why:'対象の商品ではない', line });
+    if(!size) return skip.push({ i, why:'5kg/2kgが読み取れない', line });
+    const date = m.date !== '' && m.date != null ? csvDate(r[m.date]) : '';
+    if(!date) return skip.push({ i, why:'日付が読み取れない', line });
+    const store = m.store !== '' && m.store != null ? csvStore(r[m.store]) : CSV.fixedStore;
+    if(!store) return skip.push({ i, why:'店舗が一致しない', line });
+    let qty = m.qty !== '' && m.qty != null ? Number(String(r[m.qty]).normalize('NFKC').replace(/[,，\s]/g, '')) : 1;
+    if(!qty || isNaN(qty)) return skip.push({ i, why:'数量が0または読み取れない', line });
+    let kind = '販売';
+    if(qty < 0){ kind = '返品'; qty = -qty; }
+    if(m.kind !== '' && m.kind != null && /返品|取消|返金|戻/.test(String(r[m.kind]))) kind = '返品';
+    ok.push({ clientId: 'V' + hash36(CSV.file + '|' + line + '#' + seen[line]) + hash36(line),
+      date, store, size, kind, qty: Math.floor(qty), by: 'CSV', note: CSV.file });
+  });
+  return { ok, skip };
+}
+
+function csvCardHtml(){
+  if(!CSV.rows.length) return `<div class="mute">各店舗のレジから出したCSVを選ぶと、5kg・2kgの販売数をまとめて記録します（Shift_JISにも対応）。</div>
+    <input type="file" id="csvFile" accept=".csv,.txt,text/csv" style="margin-top:8px">`;
+  const h = csvHeaders(), m = CSV.map;
+  const sel = (k, label, opt) => `<div><label class="f">${label}</label><select data-csv="${k}">
+    <option value="">${opt||'（なし）'}</option>${h.map((x,i)=>`<option value="${i}" ${String(m[k])===String(i)?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
+  const { ok, skip } = csvBuild();
+  const sum = {};
+  ok.forEach(x => { const k = x.store; sum[k] = sum[k] || { '販売5kg':0,'販売2kg':0,'返品5kg':0,'返品2kg':0 }; sum[k][x.kind+x.size] += x.qty; });
+  const why = {}; skip.forEach(x => why[x.why] = (why[x.why]||0) + 1);
+  return `<div class="row between"><b>${esc(CSV.file)}</b><button class="btn sm ghost" id="csvClear">やめる</button></div>
+    <div class="mute">${CSV.rows.length}行</div>
+    <label class="row" style="margin-top:6px"><input type="checkbox" id="csvHeader" ${CSV.header?'checked':''}> 1行目は見出し</label>
+    <div class="grid2">${sel('date','日付の列')}${sel('item','商品名の列')}${sel('qty','数量の列','（なし＝1行1個）')}${sel('store','店舗の列','（なし＝下で選ぶ）')}</div>
+    ${m.store === '' || m.store == null ? `<label class="f">店舗</label><select id="csvFixedStore"><option value="">選んでください</option>
+      ${activeStores().map(s=>`<option ${CSV.fixedStore===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
+    <div class="grid2">${sel('kind','返品が分かる列（任意）')}
+      <div><label class="f">商品名に含む文字</label><input type="text" id="csvKeyword" value="${esc(CSV.keyword)}" placeholder="例：米、元気つくし"></div></div>
+    <div class="mute" style="margin-top:4px">商品名の「5kg」「2kg」で規格を判定します。数量がマイナスの行は返品として記録します。</div>
+    <h2 style="margin-top:14px">取り込み内容</h2>
+    ${ok.length ? `<div class="scroll"><table><tr><th>店舗</th><th>販売 5kg</th><th>販売 2kg</th><th>返品 5kg</th><th>返品 2kg</th></tr>
+      ${Object.keys(sum).map(k=>`<tr><td>${esc(k)}</td><td>${sum[k]['販売5kg']}</td><td>${sum[k]['販売2kg']}</td><td>${sum[k]['返品5kg']}</td><td>${sum[k]['返品2kg']}</td></tr>`).join('')}
+      </table></div>` : '<div class="mute">取り込める行がまだありません。列の選び方を確認してください。</div>'}
+    ${skip.length ? `<details style="margin-top:8px"><summary class="mute">対象外 ${skip.length}行（${Object.keys(why).map(k=>k+' '+why[k]).join('・')}）</summary>
+      <div class="mute" style="font-size:12px;margin-top:4px">${skip.slice(0,8).map(x=>`${x.i+1+(CSV.header?1:0)}行目：${esc(x.why)}　<span style="opacity:.7">${esc(x.line.slice(0,60))}</span>`).join('<br>')}</div></details>` : ''}
+    <button class="btn full" id="csvImport" style="margin-top:12px" ${ok.length && !CSV.busy ? '' : 'disabled'}>${ok.length}件を取り込む</button>
+    <div class="mute" style="margin-top:6px">同じCSVをもう一度取り込んでも二重には記録されません。</div>`;
+}
+function csvRefresh(){ const c = $('#csvCard'); if(c) c.innerHTML = csvCardHtml(); }
+function csvSaveMap(){
+  const all = lsJ(CSVK, {});
+  all[csvSig()] = { header:CSV.header, map:CSV.map, fixedStore:CSV.fixedStore, keyword:CSV.keyword };
+  lsJS(CSVK, all);
+}
+async function csvLoadFile(file){
+  if(!file) return;
+  const buf = await file.arrayBuffer();
+  Object.assign(CSV, { file:file.name, rows: csvParse(csvDecode(buf)), header:true, map:{}, fixedStore:'', busy:false });
+  const saved = lsJ(CSVK, {})[csvSig()];
+  if(saved) Object.assign(CSV, saved, { map: Object.assign({}, saved.map) });
+  else { CSV.map = csvGuess(); CSV.fixedStore = S.store || ''; }
+  csvRefresh();
+  if(saved) toast('前回と同じ形式のCSVです。列の選び方を引き継ぎました');
+}
+function csvImport(){
+  const { ok } = csvBuild();
+  if(!ok.length) return;
+  const have = new Set(allLogs().map(l => l.clientId));
+  const add = ok.filter(x => !have.has(x.clientId));
+  csvSaveMap();
+  if(!add.length){ toast('すべて取り込み済みです'); return; }
+  setQ(Q.concat(add));
+  toast(`${add.length}件を記録しました（${ok.length - add.length}件は取り込み済み）`);
+  Object.assign(CSV, { file:'', rows:[] });
+  rShop(); flush();
 }
 
 function submitShop(){
@@ -822,6 +967,8 @@ document.addEventListener('click', e => {
   if(b.dataset.sstore){ S.store = b.dataset.sstore; lsSet(K.store, S.store); rShop(); return; }
   if(b.dataset.skind){ S.kind = b.dataset.skind; rShop(); return; }
   if(b.id === 'shopSubmit'){ submitShop(); return; }
+  if(b.id === 'csvImport'){ csvImport(); return; }
+  if(b.id === 'csvClear'){ Object.assign(CSV, { file:'', rows:[] }); csvRefresh(); return; }
   if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
   if(b.dataset.msave){ saveMill(b.dataset.msave); return; }
   if(b.dataset.preq){ openPrint('req', b.dataset.preq); return; }
@@ -893,6 +1040,11 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   const i = e.target;
+  if(i.id === 'csvFile'){ csvLoadFile(i.files && i.files[0]).catch(err => toast('CSVを読めませんでした：' + err.message)); return; }
+  if(i.dataset.csv){ CSV.map[i.dataset.csv] = i.value; csvRefresh(); return; }
+  if(i.id === 'csvHeader'){ CSV.header = i.checked; csvRefresh(); return; }
+  if(i.id === 'csvFixedStore'){ CSV.fixedStore = i.value; csvRefresh(); return; }
+  if(i.id === 'csvKeyword'){ CSV.keyword = i.value.trim(); csvRefresh(); return; }
   if(i.dataset.lp === 'preset'){
     LP.preset = i.value;
     const p = LBL_PRESETS.find(x => x.id === i.value);
