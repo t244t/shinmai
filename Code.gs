@@ -43,6 +43,8 @@ const DEFAULTS = {
     ['確認文言2', '苗の購入・栽培作業記録による確認米', '表示シール（未検査米で産地等を表示する根拠。空欄で非表示）'],
     ['確認割合2', '10割100%', '表示シール'],
     ['販売者電話', '092-324-8050', '表示シールの電話番号'],
+    ['JAN5kg', '', '5kgのJANコード（13桁。12桁ならチェック数字を自動計算）'],
+    ['JAN2kg', '', '2kgのJANコード'],
     ['シール単価', 1.3, '18面シール1面あたりの用紙代（円）'],
     ['会社名', '株式会社 農・みのり', '依頼書・表示シール'],
     ['郵便番号', '〒819-1152', '依頼書'],
@@ -153,7 +155,7 @@ function sheet_(name) {
     sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
     sh.setFrozenRows(1);
     if (DEFAULTS[name]) {
-      const d = DEFAULTS[name];
+      const d = name === '設定' ? DEFAULTS[name].map(r => [r[0], txt_(r[1]), r[2]]) : DEFAULTS[name];
       sh.getRange(2, 1, d.length, d[0].length).setValues(d);
     }
     if (name === '精米記録') seedMilling_(sh);
@@ -240,10 +242,21 @@ function n_(v) { const x = Number(v); return isFinite(x) ? x : 0; }
 
 /* ---------------- 読み込み ---------------- */
 
+/** 文字の設定値はそのまま文字で保存（「100%」が数値に、JANの先頭0が消える等を防ぐ） */
+function txt_(v) {
+  return (typeof v === 'string' && v !== '' && v.charAt(0) !== "'") ? "'" + v : v;
+}
+
 function settings_() {
   const s = {};
   DEFAULTS['設定'].forEach(d => s[d[0]] = d[1]); // 未登録のキーは初期値
-  rows_(sheet_('設定')).forEach(r => { s[String(r['キー'])] = r['値'] instanceof Date ? d_(r['値']) : r['値']; });
+  rows_(sheet_('設定')).forEach(r => {
+    const k = String(r['キー']); let v = r['値'];
+    if (v instanceof Date) v = d_(v);
+    else if (/割合$/.test(k) && typeof v === 'number') v = Math.round(v * 100) + '%'; // 数値になった「100%」を戻す
+    else if (/^JAN/.test(k) && typeof v === 'number') v = String(v);
+    s[k] = v;
+  });
   return s;
 }
 
@@ -252,7 +265,7 @@ function ensureSettings_() {
   const sh = sheet_('設定');
   const have = {};
   rows_(sh).forEach(r => have[String(r['キー'])] = true);
-  const add = DEFAULTS['設定'].filter(d => !have[d[0]]).map(d => toArr_(sh, { 'キー': d[0], '値': d[1], '説明': d[2] }));
+  const add = DEFAULTS['設定'].filter(d => !have[d[0]]).map(d => toArr_(sh, { 'キー': d[0], '値': txt_(d[1]), '説明': d[2] }));
   appendRows_(sh, add);
 }
 
@@ -262,8 +275,8 @@ function saveSettings_(items) {
   const rows = rows_(sh);
   items.forEach(([k, v]) => {
     const r = rows.find(x => String(x['キー']) === String(k));
-    if (r) writeRow_(sh, r._row, { '値': v });
-    else appendRows_(sh, [toArr_(sh, { 'キー': k, '値': v })]);
+    if (r) writeRow_(sh, r._row, { '値': txt_(v) });
+    else appendRows_(sh, [toArr_(sh, { 'キー': k, '値': txt_(v) })]);
   });
   return { ok: true };
 }

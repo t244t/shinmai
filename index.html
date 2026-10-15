@@ -147,7 +147,13 @@ a{color:var(--blue)}
 .rq .note{border-bottom:.6mm solid #000;text-align:center;padding:4mm 0 1.5mm;font-size:3.2mm}
 /* 表示シール */
 .lbl{position:absolute;box-sizing:border-box;padding:1.1mm}
-.lbl .in{width:100%;height:100%;overflow:hidden;display:flex;align-items:center}
+.lbl .in{width:100%;height:100%;overflow:hidden;display:flex;align-items:center;gap:1.5mm}
+.lbl .tb{flex:1;min-width:0;height:100%;display:flex;align-items:center}
+.lbl .bc{flex:none;height:100%;display:flex;align-items:center;justify-content:center}
+.lbl .bcbox{position:relative;overflow:visible}
+.lbl .bcbox svg{position:absolute;left:0;top:0;transform-origin:0 0}
+.lbl .bcph{border:.3mm dashed #bbb;color:#999;font-size:2.4mm;writing-mode:vertical-rl;display:flex;align-items:center;justify-content:center;text-align:center}
+@media print{.lbl .bcph{border-color:transparent;color:transparent}}
 .lbl table{width:100%;border-collapse:collapse;font-size:var(--lfs,3mm);line-height:1.15;border:.3mm solid #000;table-layout:auto;height:100%}
 .lbl th,.lbl td{padding:.06em .28em;white-space:nowrap;text-align:left;font-weight:400;border:0;color:#000}
 .lbl th{width:1%;font-size:inherit;color:#000;font-weight:600;text-align:center;border-right:.2mm solid #000;border-bottom:.2mm solid #000;padding:.06em .3em}
@@ -260,7 +266,7 @@ const S = { store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0,
 const M = {};                      // 精米の編集中データ { date: {gen,b5k,b5m,b2k,b2m,pay,status,note} }
 const DEF_SET = { '玄米袋kg':30, '歩留まり':0.9, '名称':'精　　米', '原料区分':'単一原料米', '品種':'元気つくし', '産地':'福岡県', '産年':'令和8年',
   '産地割合':'100%', '品種割合':'100%', '産年割合':'100%', '確認文言1':'JA農産物検査証明による確認米', '確認割合1':'10割100%',
-  '確認文言2':'苗の購入・栽培作業記録による確認米', '確認割合2':'10割100%', '販売者電話':'092-324-8050', 'シール単価':1.3,
+  '確認文言2':'苗の購入・栽培作業記録による確認米', '確認割合2':'10割100%', '販売者電話':'092-324-8050', 'シール単価':1.3, 'JAN5kg':'', 'JAN2kg':'',
   '会社名':'株式会社 農・みのり', '郵便番号':'〒819-1152', '住所':'福岡県糸島市飯原1675番地1', 'TEL':'092-323-8700',
   'FAX':'092-322-7661', '登録番号':'T3290001095842', '依頼先':'産栄株式会社　米のます屋　様',
   '依頼書注記':'※　余りは、無地袋 ２Kg　に入れて下さい。　宜しくお願いします。', '持込時間':'9:00〜17:00' };
@@ -798,7 +804,54 @@ const LBL_PRESETS = [
   { id:'custom', name:'カスタム（寸法を入力）' },
 ].map(p => Object.assign({ top:0, left:0, gx:0, gy:0 }, p));
 const LKEY = 'shinmai_label_v2';
-const LP = Object.assign({ preset:'18', cols:3, rows:6, w:70, h:49.5, top:0, left:0, gx:0, gy:0, dx:0, dy:0 }, lsJ(LKEY, {}));
+const LP = Object.assign({ preset:'18', cols:3, rows:6, w:70, h:49.5, top:0, left:0, gx:0, gy:0, dx:0, dy:0,
+  bc:{ '10':true }, bcMag:0.8 }, lsJ(LKEY, {}));   // bc: 用紙ごとのバーコード欄 ON/OFF（10面は初期ON）
+const bcOn = () => !!(LP.bc || {})[LP.preset];
+
+/* ===== JAN（EAN-13）バーコード ===== */
+const EAN_L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+const EAN_G = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+const EAN_R = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+const EAN_P = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+function janCheck(d12){ let s = 0; for(let i=0;i<12;i++) s += (+d12[i]) * (i % 2 ? 3 : 1); return (10 - s % 10) % 10; }
+/** 入力を13桁に整える。12桁ならチェック数字を付ける。不正なら { error } */
+function janNorm(v){
+  const d = String(v||'').normalize('NFKC').replace(/[^0-9]/g, '');
+  if(!d) return { error:'JANコード未設定' };
+  if(d.length === 12) return { code: d + janCheck(d) };
+  if(d.length === 13) return janCheck(d) === +d[12] ? { code:d } : { error:'JANコードのチェック数字が違います' };
+  return { error:'JANコードは13桁です' };
+}
+/** 横向きのバーコードSVG（mm単位）。w×h を返す */
+function ean13Svg(code, mag){
+  const mod = 0.33 * mag, P = EAN_P[+code[0]];
+  let bits = '101';
+  for(let i=1;i<=6;i++) bits += (P[i-1] === 'L' ? EAN_L : EAN_G)[+code[i]];
+  bits += '01010';
+  for(let i=7;i<=12;i++) bits += EAN_R[+code[i]];
+  bits += '101';
+  const guard = new Set([0,1,2,45,46,47,48,49,92,93,94]);
+  const QL = 11, BAR = 69, GEXT = 5, H = 79;           // モジュール単位（標準寸法に準拠）
+  let rects = '';
+  for(let i=0;i<95;i++) if(bits[i] === '1') rects += `<rect x="${QL+i}" y="0" width="1.02" height="${guard.has(i) ? BAR+GEXT : BAR}"/>`;
+  let txt = `<text x="${QL-4}" y="${H-0.5}">${code[0]}</text>`;
+  for(let i=0;i<6;i++) txt += `<text x="${QL+3+7*i+3.5}" y="${H-0.5}">${code[1+i]}</text>`;
+  for(let i=0;i<6;i++) txt += `<text x="${QL+50+7*i+3.5}" y="${H-0.5}">${code[7+i]}</text>`;
+  const w = 113 * mod, h = H * mod;
+  return { w, h, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 113 ${H}" width="${w}mm" height="${h}mm">
+    <rect width="113" height="${H}" fill="#fff"/><g fill="#000">${rects}</g>
+    <g font-family="'OCR B','Consolas','Menlo',monospace" font-size="9" text-anchor="middle" fill="#000">${txt}</g></svg>` };
+}
+/** シール右側のバーコード欄（縦向き） */
+function barcodeHtml(size){
+  const mag = Number(LP.bcMag) || 0.8;
+  const j = janNorm(ST(size === '5kg' ? 'JAN5kg' : 'JAN2kg'));
+  const W = 113 * 0.33 * mag, Hh = 79 * 0.33 * mag;           // 回転前の幅・高さ
+  if(j.error) return `<div class="bc"><div class="bcph" style="width:${Hh}mm;height:${W}mm">${esc(j.error)}<br>（${size}）</div></div>`;
+  const b = ean13Svg(j.code, mag);
+  return `<div class="bc"><div class="bcbox" style="width:${b.h}mm;height:${b.w}mm">
+    ${b.svg.replace('<svg ', `<svg style="transform:translateX(${b.h}mm) rotate(90deg)" `)}</div></div>`;
+}
 const PV = { mode:'', rec:'', date:'', reqDate:'', n5:0, n2:0, skip:1, millDate:'' };
 
 /** 精米時期：令和8年　10月　上旬 */
@@ -852,6 +905,10 @@ function pvControls(){
     <div class="g3">
       <div><label class="f">精米日（→精米時期）</label><input type="date" data-pv="millDate" value="${PV.millDate}"></div>
       ${num('dx','位置調整 →mm')}${num('dy','位置調整 ↓mm')}
+    </div>
+    <div class="g3" style="align-items:end">
+      <label class="row" style="min-height:38px"><input type="checkbox" id="bcToggle" ${bcOn()?'checked':''}> バーコード欄</label>
+      ${bcOn() ? `<div><label class="f">バーコード倍率</label><select data-lp="bcMag">${[0.8,0.9,1.0].map(x=>`<option value="${x}" ${Number(LP.bcMag)===x?'selected':''}>${Math.round(x*100)}%</option>`).join('')}</select></div>` : ''}
     </div>
     <div class="mute" id="pvInfo" style="margin-top:6px"></div>`;
 }
@@ -918,7 +975,7 @@ function pvPages(){
       for(let k=0;k<per;k++){
         const idx = p*per + k;
         if(idx < skip) html += cell(idx, '', 'skip');
-        else if(idx - skip < items.length) html += cell(idx, labelHtml(items[idx-skip]));
+        else if(idx - skip < items.length) html += cell(idx, `<div class="tb">${labelHtml(items[idx-skip])}</div>${bcOn() ? barcodeHtml(items[idx-skip]) : ''}`);
         else html += cell(idx, '', 'empty');
       }
       html += '</div>';
@@ -939,7 +996,8 @@ function fitLabels(){
   let fs = Math.max(g.pt || 11, 8) * 25.4 / 72;
   for(; fs > 1.2; fs -= 0.05){
     $('#pvScale').style.setProperty('--lfs', fs.toFixed(2)+'mm');
-    if(t.scrollWidth <= first.clientWidth + 0.5 && t.offsetHeight <= first.clientHeight + 0.5) break;
+    const box = t.parentElement;
+    if(t.scrollWidth <= box.clientWidth + 0.5 && t.offsetHeight <= box.clientHeight + 0.5) break;
   }
   const pt = fs * 72 / 25.4;
   const n = (Math.floor(+PV.n5||0) + Math.floor(+PV.n2||0));
@@ -1025,7 +1083,8 @@ function rSet(){
       <div class="grid2">${[['産地割合','産地の使用割合'],['品種割合','品種の使用割合']].map(fld).join('')}</div>
       ${[['産年割合','産年の使用割合'],['確認文言1','確認文言①（検査米の場合）'],['確認割合1','確認①の割合'],
          ['確認文言2','確認文言②（未検査米の根拠）'],['確認割合2','確認②の割合'],['会社名','販売者 名称'],['住所','販売者 住所'],
-         ['販売者電話','販売者 電話番号'],['シール単価','用紙代（18面の1面あたり・円）']].map(fld).join('')}
+         ['販売者電話','販売者 電話番号'],['JAN5kg','JANコード 5kg（バーコード欄）'],['JAN2kg','JANコード 2kg（バーコード欄）'],
+         ['シール単価','用紙代（18面の1面あたり・円）']].map(fld).join('')}
       <div class="mute" style="margin-top:6px">確認文言や割合は空欄にするとシールに出ません。</div></div>
     <h2>精米加工依頼書</h2><div class="card">
       ${[['依頼先','依頼先（精米所）'],['郵便番号','郵便番号'],['TEL','TEL'],['FAX','FAX'],['登録番号','登録番号'],['依頼書注記','依頼書の注記'],
@@ -1121,6 +1180,7 @@ document.addEventListener('input', e => {
   if(i.dataset.pv || i.dataset.lp){
     if(i.dataset.pv) PV[i.dataset.pv] = i.value;
     else if(i.dataset.lp !== 'preset'){ LP[i.dataset.lp] = i.value === '' ? 0 : Number(i.value); lsJS(LKEY, LP); }
+    if(i.dataset.lp === 'bcMag'){ pvPages(); return; }
     clearTimeout(pvT); pvT = setTimeout(pvPages, 250); return;
   }
   if(i.dataset.f){ F[i.dataset.f] = i.value; return; }
@@ -1144,6 +1204,7 @@ document.addEventListener('change', e => {
   if(i.id === 'csvHeader'){ CSV.header = i.checked; csvRefresh(); return; }
   if(i.id === 'csvFixedStore'){ CSV.fixedStore = i.value; csvRefresh(); return; }
   if(i.id === 'csvKeyword'){ CSV.keyword = i.value.trim(); csvRefresh(); return; }
+  if(i.id === 'bcToggle'){ LP.bc = Object.assign({}, LP.bc, { [LP.preset]: i.checked }); lsJS(LKEY, LP); pvControls(); pvPages(); return; }
   if(i.dataset.lp === 'preset'){
     LP.preset = i.value;
     const p = LBL_PRESETS.find(x => x.id === i.value);
