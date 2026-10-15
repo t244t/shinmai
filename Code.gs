@@ -45,6 +45,7 @@ const DEFAULTS = {
     ['販売者電話', '092-324-8050', '表示シールの電話番号'],
     ['JAN5kg', '2186410000000', '5kgのJANコード（13桁。12桁ならチェック数字を自動計算）'],
     ['JAN2kg', '2186410100000', '2kgのJANコード'],
+    ['Geminiモデル', '', '出荷表の読み取りに使うモデル（空欄＝gemini-flash-lite-latest）'],
     ['JAN方式', '価格入り', '固定＝番号どおり／価格入り＝先頭8桁＋税込価格4桁＋チェック数字'],
     ['シール単価', 1.3, '18面シール1面あたりの用紙代（円）'],
     ['会社名', '株式会社 農・みのり', '依頼書・表示シール'],
@@ -109,6 +110,7 @@ function doGet(e) {
     else if (a === 'saveStore') out = locked_(() => saveStore_(p));
     else if (a === 'saveSettings') out = locked_(() => saveSettings_(JSON.parse(p.items)));
     else if (a === 'geminiPing') out = geminiPing_();
+    else if (a === 'geminiList') out = geminiList_();
     else out = { ok: false, error: '不明なaction: ' + a };
   } catch (err) {
     out = { ok: false, error: String(err && err.message || err) };
@@ -570,9 +572,8 @@ function readShipSheet_(b) {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
-  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-lite-latest';
-  // 混雑時の予備（同じモデルで2回やり直してもだめなら軽量版へ）
-  const models = [model, model, model === 'gemini-flash-latest' ? 'gemini-flash-lite-latest' : 'gemini-flash-latest'];
+  // 混雑時の予備（同じモデルで2回やり直してもだめなら別のモデルへ）
+  const models = geminiModels4_();
   const mime = b.mime || 'image/jpeg';
   const prompt = [
     'これは「ファームパーク伊都国 伊都国即売会」の手書きの出荷表の写真です。読み取って JSON だけを返してください。',
@@ -644,13 +645,34 @@ function geminiCall_(key, models, parts, json) {
   return { code: code, txt: txt, model: used, ms: Date.now() - t0, tries: tries.join(' / ') };
 }
 
+/** 使うモデル：設定シート「Geminiモデル」＞スクリプトプロパティ GEMINI_MODEL＞既定 */
+function geminiModels4_() {
+  let m = '';
+  try { m = String(settings_()['Geminiモデル'] || '').trim(); } catch (e) {}
+  m = m || PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-flash-lite-latest';
+  const alt = m === 'gemini-flash-latest' ? 'gemini-flash-lite-latest' : 'gemini-flash-latest';
+  return [m, m, alt];
+}
+
+/** キーで使える Gemini モデルの一覧（generateContent 対応のもの） */
+function geminiList_() {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
+  const res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=' + encodeURIComponent(key), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw new Error('一覧を取得できませんでした (' + res.getResponseCode() + ')');
+  const list = (JSON.parse(res.getContentText()).models || [])
+    .filter(m => (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0 && /gemini/i.test(m.name) && /flash/i.test(m.name) && !/image|tts|audio|live|embedding/i.test(m.name))
+    .map(m => ({ id: String(m.name).replace(/^models\//, ''), name: m.displayName || '' }));
+  return { ok: true, models: list, current: geminiModels4_()[0] };
+}
+
 /** ⚙設定の「Gemini接続テスト」用：短い文だけ送って応答時間とモデルを確認 */
 function geminiPing_() {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('スクリプトプロパティ GEMINI_API_KEY が未設定です');
-  const model = props.getProperty('GEMINI_MODEL') || 'gemini-flash-lite-latest';
-  const r = geminiCall_(key, [model, model === 'gemini-flash-latest' ? 'gemini-flash-lite-latest' : 'gemini-flash-latest'], [{ text: '「OK」とだけ返してください。' }], false);
+  const ms = geminiModels4_();
+  const r = geminiCall_(key, [ms[0], ms[2]], [{ text: '「OK」とだけ返してください。' }], false);
   if (r.code !== 200) throw new Error('Gemini エラー (' + r.code + ')：' + r.txt.slice(0, 160) + '　試行：' + r.tries);
   return { ok: true, model: r.model, ms: r.ms, tries: r.tries };
 }

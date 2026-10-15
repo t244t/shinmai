@@ -1245,7 +1245,11 @@ function rSet(){
       <button class="btn" id="urlSave">保存して読み込む</button>
       <button class="btn sub" id="ping">接続テスト</button>
       <button class="btn sub" id="gemPing">Gemini接続テスト</button></div>
-    <div class="mute" id="gemPingOut" style="font-size:12px;margin-top:6px"></div></div>
+    <div class="mute" id="gemPingOut" style="font-size:12px;margin-top:6px"></div>
+    <label class="f">出荷表の読み取りに使うGeminiモデル</label>
+    <div class="row" style="gap:8px"><select id="gemModel" style="flex:1"><option value="">${esc(ST('Geminiモデル') || '既定（gemini-flash-lite-latest）')}</option></select>
+      <button class="btn sm sub" id="gemList">一覧を取得</button></div>
+    <div class="mute" style="font-size:12px;margin-top:4px">混んでいて遅いときは、版番号付きのモデル（例：gemini-2.5-flash）を選んで「Gemini接続テスト」で速さを比べてください。選ぶとすぐ保存されます。</div></div>
   ${D ? `<h2>価格</h2>${prices().map(p=>`<div class="card"><b>${esc(p.size)}</b>
     <div class="grid2">
       <div><label class="f">税別</label><input type="number" data-p="${esc(p.size)}" data-pk="ex" value="${p.ex}"></div>
@@ -1349,6 +1353,15 @@ document.addEventListener('click', e => {
     api('ping', {}, 15000).then(r=>toast('接続OK（' + r.now + '）')).catch(err=>{ toast(err.message); });
     return;
   }
+  if(b.id === 'gemList'){
+    const sel = $('#gemModel'); b.disabled = true; b.textContent = '取得中…';
+    api('geminiList', {}, 60000).then(r => {
+      sel.innerHTML = `<option value="">既定（gemini-flash-lite-latest）</option>` +
+        r.models.map(m => `<option value="${esc(m.id)}" ${m.id === r.current ? 'selected' : ''}>${esc(m.id)}</option>`).join('');
+      toast(`${r.models.length}件のモデルが使えます`);
+    }).catch(err => toast(err.message)).finally(() => { b.disabled = false; b.textContent = '一覧を取得'; });
+    return;
+  }
   if(b.id === 'gemPing'){
     const o = $('#gemPingOut'); o.textContent = 'Geminiに問い合わせ中…'; const t = Date.now();
     api('geminiPing', {}, 240000).then(r => { o.textContent = `OK：${r.model}・${Math.round(r.ms/1000)}秒（試行 ${r.tries}）`; })
@@ -1397,6 +1410,12 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   const i = e.target;
+  if(i.id === 'gemModel'){
+    api('saveSettings', { items: JSON.stringify([['Geminiモデル', i.value]]) })
+      .then(() => { toast('モデルを「' + (i.value || '既定') + '」にしました'); if(D && D.settings) D.settings['Geminiモデル'] = i.value; })
+      .catch(err => toast(err.message));
+    return;
+  }
   if(i.id === 'shipFile'){ shipLoad(i.files && i.files[0]); return; }
   if(i.id === 'shipDate'){ SHIP.date = i.value; return; }
   if(i.id === 'shipRound'){ SHIP.round = Number(i.value) || 1; return; }
