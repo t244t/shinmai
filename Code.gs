@@ -631,7 +631,12 @@ function geminiCall_(key, models, parts, json) {
     } catch (e) { code = 504; txt = String(e); }
     tries.push(used + ':' + code + ':' + Math.round((Date.now() - t) / 1000) + 's');
     if (code === 200) break;
-    if (code === 400 && thinking && /thinking/i.test(txt)) { thinking = false; i--; continue; }  // thinking 非対応
+    if (code === 400 && thinking) { thinking = false; i--; continue; }   // thinking 設定に非対応 → 外して同じモデルでやり直す
+    if (code === 400 || code === 404) {                                  // モデル名が使えない等 → 次のモデルへ
+      const next = models.slice(i + 1).find(m => m !== used);
+      if (!next) break;
+      i = models.indexOf(next, i + 1) - 1; thinking = true; continue;
+    }
     if ([429, 500, 503, 504].indexOf(code) < 0) break;   // 混雑・一時的なエラーだけやり直す
     if (Date.now() - t0 > 200000) break;                   // GAS の時間制限に余裕を残す
     if (i < models.length - 1) Utilities.sleep(2000 * (i + 1));
