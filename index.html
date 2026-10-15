@@ -82,6 +82,62 @@ nav button.on{color:var(--green);font-weight:700}
 .kpi b{display:block;font-size:20px}
 .kpi small{color:var(--mute);font-size:12px}
 a{color:var(--blue)}
+.millgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+.calc{background:var(--rice);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;line-height:1.6}
+.btnrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:10px}
+/* 印刷プレビュー */
+#pv{position:fixed;inset:0;z-index:50;background:#e9e6de;display:flex;flex-direction:column}
+.pvbar{display:flex;align-items:center;gap:8px;background:var(--green);color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px}
+.pvbar b{flex:1;font-size:16px}
+.pvbody{flex:1;overflow:auto;padding:12px}
+.pvctl{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 auto 12px;max-width:720px}
+.pvctl .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 10px}
+.pvctl .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 8px}
+.pvctl label.f{margin:6px 0 2px}
+.pvctl input,.pvctl select{min-height:38px;padding:6px 8px}
+.pvwrap{margin:0 auto;overflow:hidden}
+#pvScale{transform-origin:0 0}
+.page{background:#fff;position:relative;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.18);margin-bottom:8mm;color:#000;
+  font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic","Meiryo",sans-serif}
+.page.land{width:297mm;height:210mm}
+.page.port{width:210mm;height:297mm}
+/* 依頼書 */
+.rq{position:absolute;top:14mm;width:128mm;font-size:3.2mm}
+.rq h1{font-size:5.4mm;font-weight:500;text-align:center;letter-spacing:3mm;margin:0 0 5mm}
+.rq .dt{text-align:right;margin-bottom:5mm}
+.rq .to{font-size:3.8mm;border-bottom:.3mm solid #000;width:66mm;padding:0 0 1mm 2mm;margin-bottom:2mm}
+.rq .mid{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6mm}
+.rq .from{font-size:2.8mm;line-height:1.55;width:62mm}
+.rq .from b{font-size:3.6mm;font-weight:500}
+.rq table{width:100%;border-collapse:collapse;margin-bottom:6mm}
+.rq td{border:.25mm solid #000;height:12mm;padding:0 2mm;text-align:center;font-size:3.3mm}
+.rq table.gen{border:.6mm solid #000}
+.rq table.gen td{border:0;height:15mm}
+.rq td.n{font-size:5mm;font-weight:600;text-align:right}
+.rq td.v{width:9mm;line-height:1.7;font-size:3mm}
+.rq .note{border-bottom:.6mm solid #000;text-align:center;padding:4mm 0 1.5mm;font-size:3.2mm}
+/* 表示シール */
+.lbl{position:absolute;box-sizing:border-box;padding:1.2mm}
+.lbl .in{width:100%;height:100%;overflow:hidden}
+.lbl table{width:100%;border-collapse:collapse;font-size:var(--lfs,3mm);line-height:1.2}
+.lbl th,.lbl td{border:.2mm solid #000;padding:.06em .3em;white-space:nowrap;text-align:left;font-weight:400}
+.lbl th{width:1%}
+.lbl td.c{text-align:center}
+.lbl td.nb1{border-bottom:0}.lbl td.nb2{border-top:0;border-bottom:0}.lbl td.nb3{border-top:0}
+.screen .lbl{outline:.2mm dashed #bbb}
+.screen .lbl.skip{background:repeating-linear-gradient(45deg,#f3f3f3,#f3f3f3 2mm,#fff 2mm,#fff 4mm)}
+@media print{
+  body>*:not(#pv){display:none!important}
+  #pv{position:static;display:block;background:none}
+  .pvbar,.pvctl{display:none!important}
+  .pvbody{padding:0;overflow:visible}
+  .pvwrap{width:auto!important;height:auto!important;overflow:visible}
+  #pvScale{transform:none!important}
+  .page{box-shadow:none;margin:0;break-after:page;page-break-after:always}
+  .page:last-child{break-after:auto;page-break-after:auto}
+  .screen .lbl{outline:0}
+  .screen .lbl.skip{background:none}
+}
 </style>
 </head>
 <body>
@@ -110,6 +166,13 @@ a{color:var(--blue)}
   <button data-tab="set"><span>⚙️</span>設定</button>
 </nav>
 <div id="toast"></div>
+<div id="pv" hidden>
+  <div class="pvbar"><button class="iconbtn" id="pvClose">←</button><b id="pvTitle"></b>
+    <button class="btn sm" id="pvPrint" style="background:#fff;color:var(--green)">🖨 印刷</button></div>
+  <div class="pvbody"><div class="pvctl" id="pvCtl"></div>
+    <div class="pvwrap" id="pvWrap"><div id="pvScale" class="screen"></div></div></div>
+</div>
+<style id="pageStyle"></style>
 
 <script>
 /* ===== 設定 ===== */
@@ -164,7 +227,12 @@ let tab = lsGet(K.tab) || 'home';
 const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:'', sending:false }; // 予約フォーム
 let rsvFilter = '未', rsvQuery = '';
 const S = { store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0, by: lsGet(K.by)||'', note:'' }; // 店舗入力
-const M = {};                      // 精米の編集中データ { date: {b5,b2,pay,status,note} }
+const M = {};                      // 精米の編集中データ { date: {gen,b5k,b5m,b2k,b2m,pay,status,note} }
+const DEF_SET = { '玄米袋kg':30, '歩留まり':0.9, '名称':'精米', '品種':'', '産地':'福岡県', '産年':'令和8年産',
+  '会社名':'株式会社 農・みのり', '郵便番号':'〒819-1152', '住所':'福岡県糸島市飯原1675番地1', 'TEL':'092-323-8700',
+  'FAX':'092-322-7661', '登録番号':'T3290001095842', '依頼先':'産栄株式会社　米のます屋　様',
+  '依頼書注記':'※　余りは、無地袋 ２Kg　に入れて下さい。　宜しくお願いします。', '持込時間':'9:00〜17:00' };
+const ST = k => { const v = D && D.settings ? D.settings[k] : undefined; return (v === undefined || v === null || (v === '' && DEF_SET[k])) ? DEF_SET[k] : v; };
 let hideDone = true;
 const T = { kind:'', title:'', due:'', owner:'' };
 
@@ -227,6 +295,21 @@ function stockTable(){
     return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], r5, r2, rate: dist? sold/dist : null, sales };
   });
 }
+/** 精米1回分（編集中の値を反映）と計算結果 */
+function millView(m){
+  const e = M[m.date] || {};
+  const src = m.b5k === undefined ? Object.assign({}, m, { b5k:m.b5||0, b2k:m.b2||0 }) : m; // 旧形式のデータ
+  const v = k => Number(e[k] ?? src[k] ?? 0) || 0;
+  const r = { date:m.date, gen:v('gen'), b5k:v('b5k'), b5m:v('b5m'), b2k:v('b2k'), b2m:v('b2m'),
+    status: e.status ?? m.status, pay: e.pay ?? (m.pay||''), note: e.note ?? m.note, dirty: Object.keys(e).length>0 };
+  r.b5 = r.b5k + r.b5m; r.b2 = r.b2k + r.b2m;
+  r.kg = r.b5*price('5kg').kg + r.b2*price('2kg').kg;            // 袋詰めする量
+  r.genKg = r.gen * Number(ST('玄米袋kg'));                       // 持ち込む玄米
+  r.expect = Math.floor(r.genKg * Number(ST('歩留まり')));         // 精米後の見込み
+  r.base = r.gen ? r.genKg : r.kg;                                 // 90kg判定の基準
+  r.short = r.base > 0 && r.base < minKg();
+  return r;
+}
 function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status === '未'); }
 
 /* ===== 描画 ===== */
@@ -256,13 +339,13 @@ function rHome(){
 
   let h = '<h2>次の精米</h2>';
   if(next){
-    const short = next.kg < minKg();
-    h += `<div class="card"><div class="row between"><div><div class="big">${md(next.date)}</div>
-      <div class="mute">${period(next.date)}・持ち込み ${md(addDays(next.date,-1))}</div></div>
-      <div style="text-align:right"><div class="big ${next.kg? (short?'warn':'okc') : ''}">${next.kg}kg</div>
-      <div class="mute">5kg×${next.b5}・2kg×${next.b2}</div></div></div>
-      ${next.kg && short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-next.kg}kg</div>` : ''}
-      ${!next.kg ? '<div class="mute" style="margin-top:6px">袋数が未入力です（精米タブ）</div>' : ''}</div>`;
+    const v = millView(next);
+    h += `<div class="card"><div class="row between"><div><div class="big">${md(v.date)}</div>
+      <div class="mute">${period(v.date)}・持ち込み ${md(addDays(v.date,-1))}</div></div>
+      <div style="text-align:right"><div class="big ${v.base? (v.short?'warn':'okc') : ''}">${v.gen?`玄米${v.genKg}`:v.kg}kg</div>
+      <div class="mute">${v.gen?`玄米${v.gen}袋・`:''}5kg×${v.b5}・2kg×${v.b2}</div></div></div>
+      ${v.short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-v.base}kg</div>` : ''}
+      ${!v.base ? '<div class="mute" style="margin-top:6px">袋数が未入力です（精米タブ）</div>' : ''}</div>`;
   } else h += '<div class="card mute">予定はありません</div>';
 
   h += `<h2>予約（未受取）</h2><div class="kpis">
@@ -411,31 +494,38 @@ function rMill(){
   const o5 = open.reduce((a,r)=>a+r.b5,0), o2 = open.reduce((a,r)=>a+r.b2,0);
   const st = stockTable();
   const r5 = st.reduce((a,s)=>a+s.r5,0), r2 = st.reduce((a,s)=>a+s.r2,0);
-  el.innerHTML = `<div class="card mute">毎週火・木に精米（${esc((D.settings||{})['持込時間']||'9:00〜17:00')}に前日持ち込み）。${minKg()}kg以上から・支払いは現金。<br>
+  el.innerHTML = `<div class="card mute">毎週火・木に精米（${esc(ST('持込時間'))}に前日持ち込み）。${minKg()}kg以上から・支払いは現金。<br>
     参考：未受取の予約 5kg×${o5}・2kg×${o2}／店舗の残り 5kg×${r5}・2kg×${r2}</div>
   <div class="list">${D.milling.map(m => {
-    const e = M[m.date] || {};
-    const b5 = e.b5 ?? m.b5, b2 = e.b2 ?? m.b2;
-    const kg = b5*price('5kg').kg + b2*price('2kg').kg;
-    const short = kg>0 && kg<minKg();
-    const dirty = Object.keys(e).length > 0;
+    const v = millView(m);
     const past = m.date < td;
-    return `<div class="card ${past||m.status==='精米済'||m.status==='中止'?'past':''}">
+    const rest = v.expect - v.kg;
+    const sp = (k,l) => `<div><label class="f">${l}</label>${stepper('M.'+m.date+'.'+k, v[k])}</div>`;
+    return `<div class="card ${past||v.status==='精米済'||v.status==='中止'?'past':''}">
       <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
         <div class="mute">持ち込み ${md(addDays(m.date,-1))}</div></div>
-        <div style="text-align:right"><div class="big ${kg?(short?'warn':'okc'):''}">${kg}kg</div>
-        ${short?`<div class="warn" style="font-size:12px">あと${minKg()-kg}kg</div>`:''}</div></div>
-      <div class="grid2" style="margin-top:6px">
-        <div><label class="f">5kg 袋</label>${stepper('M.'+m.date+'.b5', b5)}</div>
-        <div><label class="f">2kg 袋</label>${stepper('M.'+m.date+'.b2', b2)}</div>
+        <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
+        <div class="mute" style="font-size:11px">${v.gen?'玄米で判定':'袋詰め量で判定'}</div>
+        ${v.short?`<div class="warn" style="font-size:12px">あと${minKg()-v.base}kg</div>`:''}</div></div>
+      <div class="millgrid" style="margin-top:4px">
+        ${sp('gen','玄米（'+ST('玄米袋kg')+'kg袋）')}<div></div>
+        ${sp('b5k','米袋 5kg')}${sp('b5m','無地袋 5kg')}
+        ${sp('b2k','米袋 2kg')}${sp('b2m','無地袋 2kg')}
       </div>
+      <div class="calc">袋詰め：5kg×${v.b5}・2kg×${v.b2} ＝ <b>${v.kg}kg</b>
+        ${v.gen?`<br>玄米 ${v.genKg}kg → 精米後 約${v.expect}kg（歩留まり${Math.round(ST('歩留まり')*100)}%）
+          <br>${rest>=0?`余り 約${rest}kg（無地袋2kgへ）`:`<span class="warn">袋詰めが見込みより${-rest}kg多い</span>`}`:''}</div>
       <div class="grid2">
         <div><label class="f">状態</label><select data-m="${m.date}" data-k="status">
-          ${['予定','持込済','精米済','中止'].map(s=>`<option ${ (e.status??m.status)===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label class="f">支払額（円）</label><input type="number" inputmode="numeric" data-m="${m.date}" data-k="pay" value="${e.pay ?? (m.pay||'')}"></div>
+          ${['予定','持込済','精米済','中止'].map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+        <div><label class="f">支払額（円）</label><input type="number" inputmode="numeric" data-m="${m.date}" data-k="pay" value="${esc(v.pay)}"></div>
       </div>
-      <label class="f">備考</label><input type="text" data-m="${m.date}" data-k="note" value="${esc(e.note ?? m.note)}">
-      <button class="btn full ${dirty?'':'sub'}" style="margin-top:10px" data-msave="${m.date}" ${dirty?'':'disabled'}>保存</button>
+      <label class="f">備考</label><input type="text" data-m="${m.date}" data-k="note" value="${esc(v.note)}">
+      <div class="btnrow">
+        <button class="btn ${v.dirty?'':'sub'}" data-msave="${m.date}" ${v.dirty?'':'disabled'}>保存</button>
+        <button class="btn sub" data-preq="${m.date}">🖨 依頼書</button>
+        <button class="btn sub" data-plbl="${m.date}">🏷 シール</button>
+      </div>
     </div>`;}).join('')}</div>
   <h2>精米日を追加</h2>
   <div class="card row"><input type="date" id="millNew"><button class="btn" id="millAdd">追加</button></div>`;
@@ -447,6 +537,165 @@ async function saveMill(date){
     await api('saveMilling', Object.assign({ date }, e));
     delete M[date]; toast(md(date) + ' を保存しました'); await load();
   }catch(err){ toast(err.message); }
+}
+
+/* ===== 印刷（精米加工依頼書・表示シール） ===== */
+const LBL_PRESETS = [
+  { id:'12', name:'12面（2列×6段）86.4×42.3mm', cols:2, rows:6, w:86.4, h:42.3, top:21.6, left:18.6, gx:0, gy:0 },
+  { id:'10', name:'10面（2列×5段）86.4×50.8mm', cols:2, rows:5, w:86.4, h:50.8, top:21.5, left:18.6, gx:0, gy:0 },
+  { id:'8',  name:'8面（2列×4段）105×74.25mm', cols:2, rows:4, w:105, h:74.25, top:0, left:0, gx:0, gy:0 },
+  { id:'4',  name:'4面（2列×2段）105×148.5mm', cols:2, rows:2, w:105, h:148.5, top:0, left:0, gx:0, gy:0 },
+  { id:'18', name:'18面（3列×6段）70×42.3mm', cols:3, rows:6, w:70, h:42.3, top:21.6, left:0, gx:0, gy:0 },
+  { id:'21', name:'21面（3列×7段）70×42.3mm', cols:3, rows:7, w:70, h:42.3, top:0.45, left:0, gx:0, gy:0 },
+  { id:'24', name:'24面（3列×8段）70×37.1mm', cols:3, rows:8, w:70, h:37.125, top:0, left:0, gx:0, gy:0 },
+  { id:'custom', name:'カスタム（寸法を入力）' },
+];
+const LKEY = 'shinmai_label_v1';
+const LP = Object.assign({ preset:'12', cols:2, rows:6, w:86.4, h:42.3, top:21.6, left:18.6, gx:0, gy:0, dx:0, dy:0 }, lsJ(LKEY, {}));
+const PV = { mode:'', rec:'', date:'', reqDate:'', n5:0, n2:0, skip:1, millDate:'' };
+
+function wareki(s, short){
+  if(!s) return '';
+  const [y,m,d] = s.split('-').map(Number);
+  return (short?'':'令和') + (y-2018) + '年' + m + '月' + d + '日';
+}
+function lblGeom(){
+  const p = LBL_PRESETS.find(x => x.id === LP.preset);
+  return (p && p.id !== 'custom') ? p : LP;
+}
+
+function openPrint(mode, date){
+  const m = D.milling.find(x => x.date === date); if(!m) return;
+  const v = millView(m);
+  Object.assign(PV, { mode, rec: date, date, reqDate: addDays(date,-1), millDate: date, n5: v.b5, n2: v.b2, skip: 1 });
+  $('#pvTitle').textContent = mode === 'req' ? '精米加工依頼書' : '精米表示シール';
+  $('#pageStyle').textContent = mode === 'req' ? '@page{size:A4 landscape;margin:0}' : '@page{size:A4 portrait;margin:0}';
+  $('#pv').hidden = false;
+  document.body.style.overflow = 'hidden';
+  pvControls(); pvPages();
+}
+function closePrint(){ $('#pv').hidden = true; document.body.style.overflow = ''; $('#pvScale').innerHTML = ''; }
+
+function pvControls(){
+  const c = $('#pvCtl');
+  if(PV.mode === 'req'){
+    c.innerHTML = `<div class="grid2"><div><label class="f">依頼日（令和 年 月 日）</label><input type="date" data-pv="reqDate" value="${PV.reqDate}"></div>
+      <div><label class="f">精米日</label><input type="date" data-pv="date" value="${PV.date}"></div></div>
+      <div class="mute" style="margin-top:6px">袋数は精米タブの入力から入ります。A4横・2枚分（1枚は控え）。</div>`;
+    return;
+  }
+  const g = lblGeom(), per = g.cols*g.rows, custom = LP.preset === 'custom';
+  const num = (k,l,step) => `<div><label class="f">${l}</label><input type="number" step="${step||0.1}" data-lp="${k}" value="${LP[k]}"></div>`;
+  c.innerHTML = `${!ST('品種') ? '<div class="banner" style="margin-bottom:8px">品種が未設定です。⚙設定の「依頼書・表示シール」で入力してください。</div>' : ''}
+    <label class="f">シール用紙</label>
+    <select data-lp="preset">${LBL_PRESETS.map(p=>`<option value="${p.id}" ${LP.preset===p.id?'selected':''}>${p.name}</option>`).join('')}</select>
+    ${custom ? `<div class="g4">${num('cols','列',1)}${num('rows','段',1)}${num('w','幅mm')}${num('h','高さmm')}
+      ${num('top','上余白mm')}${num('left','左余白mm')}${num('gx','横の間隔mm')}${num('gy','縦の間隔mm')}</div>` : ''}
+    <div class="g3">
+      <div><label class="f">5kg 枚数</label><input type="number" min="0" data-pv="n5" value="${PV.n5}"></div>
+      <div><label class="f">2kg 枚数</label><input type="number" min="0" data-pv="n2" value="${PV.n2}"></div>
+      <div><label class="f">開始位置（1〜${per}）</label><input type="number" min="1" max="${per}" data-pv="skip" value="${PV.skip}"></div>
+    </div>
+    <div class="g3">
+      <div><label class="f">精米年月日</label><input type="date" data-pv="millDate" value="${PV.millDate}"></div>
+      ${num('dx','位置調整 →mm')}${num('dy','位置調整 ↓mm')}
+    </div>
+    <div class="mute" id="pvInfo" style="margin-top:6px"></div>`;
+}
+
+function reqCopy(v, left){
+  const z = n => n ? n : '';
+  const kgOf = (n, size) => n ? n*price(size).kg : '';
+  const [, mm, dd] = PV.date.split('-').map(Number);
+  const [ry, rm, rd] = (PV.reqDate||'').split('-').map(Number);
+  const row = (bag, size, n) => `<tr><td>${bag}</td><td>${size==='5kg'?'5Kg袋':'2Kg袋'}</td><td class="n">${z(n)}</td><td>袋</td><td class="n">${kgOf(n,size)}</td><td>Kg</td></tr>`;
+  return `<div class="rq" style="left:${left}mm">
+    <h1>精米加工依頼書</h1>
+    <div class="dt">令和 ${ry? ry-2018 : '　'} 年 ${rm||'　'} 月 ${rd||'　'} 日</div>
+    <div class="to">${esc(ST('依頼先'))}</div>
+    <div class="mid"><div>精米日　<b style="font-size:4.2mm">${mm} 月 ${dd} 日</b> 分</div>
+      <div class="from"><b>${esc(ST('会社名'))}</b><br>${esc(ST('郵便番号'))}<br>${esc(ST('住所'))}<br>
+        TEL${esc(ST('TEL'))}　FAX${esc(ST('FAX'))}<br>【 登録番号 ${esc(ST('登録番号'))} 】</div></div>
+    <table class="gen"><tr><td style="width:18%">玄　米</td><td>${esc(ST('玄米袋kg'))}Kg</td><td class="n">${z(v.gen)}</td><td>袋</td>
+      <td>合計</td><td class="n">${v.gen? v.genKg : ''}</td><td>Kg</td></tr></table>
+    <table><tr><td rowspan="4" class="v">精<br>米<br>加<br>工<br>後</td>${row('米袋','5kg',v.b5k).slice(4)}
+      ${row('無地袋','5kg',v.b5m)}${row('米袋','2kg',v.b2k)}${row('無地袋','2kg',v.b2m)}</table>
+    <div class="note">${esc(ST('依頼書注記'))}</div></div>`;
+}
+
+function labelHtml(size){
+  return `<table>
+    <tr><th>名称</th><td colspan="3">${esc(ST('名称'))}</td></tr>
+    <tr><th rowspan="3">原料玄米</th><td class="c">産地</td><td class="c">品種</td><td class="c">産年</td></tr>
+    <tr><td colspan="3" class="c">単一原料米</td></tr>
+    <tr><td class="c">${esc(ST('産地'))}</td><td class="c">${esc(ST('品種'))}</td><td class="c">${esc(ST('産年'))}</td></tr>
+    <tr><th>内容量</th><td colspan="3">${esc(size)}</td></tr>
+    <tr><th>精米年月日</th><td colspan="3">${wareki(PV.millDate)}</td></tr>
+    <tr><th rowspan="3">販売者</th><td colspan="3" class="nb1">${esc(ST('会社名'))}</td></tr>
+    <tr><td colspan="3" class="nb2">${esc(ST('住所'))}</td></tr>
+    <tr><td colspan="3" class="nb3">TEL ${esc(ST('TEL'))}</td></tr></table>`;
+}
+
+function pvPages(){
+  const box = $('#pvScale');
+  let html = '', land = PV.mode === 'req';
+  if(PV.mode === 'req'){
+    const v = millView(D.milling.find(x => x.date === PV.rec) || { date:PV.rec });
+    html = `<div class="page land">${reqCopy(v, 10)}${reqCopy(v, 159)}</div>`;
+  } else {
+    const g = lblGeom(), cols = Math.max(1, Math.floor(+g.cols||1)), rows = Math.max(1, Math.floor(+g.rows||1)), per = cols*rows;
+    const items = [];
+    for(let i=0;i<Math.max(0,Math.floor(+PV.n5||0));i++) items.push('5kg');
+    for(let i=0;i<Math.max(0,Math.floor(+PV.n2||0));i++) items.push('2kg');
+    const skip = Math.min(Math.max(1, Math.floor(+PV.skip||1)), per) - 1;
+    const total = skip + items.length, pages = Math.max(1, Math.ceil(total/per));
+    const cell = (idx, inner, cls) => {
+      const k = idx % per, c = k % cols, r = Math.floor(k / cols);
+      const x = +g.left + c*(+g.w + +g.gx) + (+LP.dx||0), y = +g.top + r*(+g.h + +g.gy) + (+LP.dy||0);
+      return `<div class="lbl ${cls||''}" style="left:${x}mm;top:${y}mm;width:${g.w}mm;height:${g.h}mm"><div class="in">${inner}</div></div>`;
+    };
+    for(let p=0;p<pages;p++){
+      html += '<div class="page port">';
+      for(let k=0;k<per;k++){
+        const idx = p*per + k;
+        if(idx < skip) html += cell(idx, '', 'skip');
+        else if(idx - skip < items.length) html += cell(idx, labelHtml(items[idx-skip]));
+        else html += cell(idx, '', 'empty');
+      }
+      html += '</div>';
+    }
+  }
+  box.innerHTML = html;
+  if(PV.mode === 'label') fitLabels();
+  pvScale(land);
+}
+
+function fitLabels(){
+  const first = document.querySelector('#pvScale .lbl:not(.skip):not(.empty) .in');
+  const info = $('#pvInfo');
+  if(!first){ if(info) info.textContent = '印刷するシールがありません'; return; }
+  const t = first.querySelector('table');
+  let fs = 4.2;
+  for(; fs > 1.2; fs -= 0.05){
+    $('#pvScale').style.setProperty('--lfs', fs.toFixed(2)+'mm');
+    if(t.scrollWidth <= first.clientWidth && t.offsetHeight <= first.clientHeight) break;
+  }
+  const pt = fs * 72 / 25.4;
+  const n = (Math.floor(+PV.n5||0) + Math.floor(+PV.n2||0));
+  const pages = document.querySelectorAll('#pvScale .page').length;
+  if(info) info.innerHTML = `${n}枚・用紙${pages}枚　文字 約${pt.toFixed(1)}pt` +
+    (pt < 8 ? '　<span class="warn">8pt未満です。大きいシールの用紙を選んでください</span>' : '');
+}
+
+function pvScale(land){
+  const wrap = $('#pvWrap'), sc = $('#pvScale');
+  const pw = (land ? 297 : 210) * 96 / 25.4;
+  const avail = Math.min(wrap.parentElement.clientWidth - 2, 900);
+  const k = Math.min(1, avail / pw);
+  sc.style.transform = `scale(${k})`;
+  sc.style.width = pw + 'px';
+  wrap.style.width = (pw * k) + 'px';
+  wrap.style.height = (sc.scrollHeight * k) + 'px';
 }
 
 /* --- タスク --- */
@@ -505,6 +754,12 @@ function rSet(){
     <div class="row between" style="margin-top:8px"><label class="row"><input type="checkbox" data-sid="${esc(s.id)}" data-sk="active" ${s.active?'checked':''}> 使う</label>
       <button class="btn sm sub" data-stsave="${esc(s.id)}">保存</button></div></div>`).join('')}
   <div class="card"><div class="grid2"><input type="text" id="newStore" placeholder="新しい店舗名"><button class="btn sub" id="storeAdd">店舗を追加</button></div></div>` : ''}
+  ${D ? `<h2>依頼書・表示シール</h2><div class="card">
+    ${[['名称','名称（シール）'],['品種','品種'],['産地','産地'],['産年','産年（例：令和8年産）'],['会社名','会社名'],['郵便番号','郵便番号'],
+       ['住所','住所'],['TEL','TEL'],['FAX','FAX'],['登録番号','登録番号'],['依頼先','依頼先（精米所）'],['依頼書注記','依頼書の注記'],
+       ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.9＝90%）']]
+      .map(([k,l])=>`<label class="f">${l}</label><input type="text" data-set="${k}" value="${esc(ST(k))}">`).join('')}
+    <button class="btn full" id="infoSave" style="margin-top:12px">保存</button></div>` : ''}
   <h2>この端末</h2><div class="card">
     <div class="mute">未送信の記録：${Q.length}件　${Q.length?'<button class="btn sm" id="flushNow">今すぐ送信</button>':''}</div>
     <div class="mute" style="margin-top:6px">未送信が残っている間は、ブラウザのサイトデータを消さないでください。</div></div>`;
@@ -521,7 +776,7 @@ document.addEventListener('click', e => {
     if(obj === 'F'){ F[path[0]] = Math.max(0, F[path[0]] + d); rRsv(); }
     else if(obj === 'S'){ S[path[0]] = Math.max(0, S[path[0]] + d); rShop(); }
     else if(obj === 'M'){ const [date,k] = path; const m = D.milling.find(x=>x.date===date);
-      M[date] = M[date] || {}; M[date][k] = Math.max(0, (M[date][k] ?? m[k]) + d); rMill(); }
+      M[date] = M[date] || {}; M[date][k] = Math.max(0, (M[date][k] ?? millView(m)[k] ?? 0) + d); rMill(); }
     return;
   }
   if(b.dataset.fstore){ F.store = b.dataset.fstore; rRsv(); return; }
@@ -538,6 +793,19 @@ document.addEventListener('click', e => {
   if(b.id === 'shopSubmit'){ submitShop(); return; }
   if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
   if(b.dataset.msave){ saveMill(b.dataset.msave); return; }
+  if(b.dataset.preq){ openPrint('req', b.dataset.preq); return; }
+  if(b.dataset.plbl){ openPrint('label', b.dataset.plbl); return; }
+  if(b.id === 'pvClose'){ closePrint(); return; }
+  if(b.id === 'pvPrint'){ window.print(); return; }
+  if(b.id === 'infoSave'){
+    const items = [...document.querySelectorAll('[data-set]')].map(i => {
+      const k = i.dataset.set, v = i.value.trim();
+      return [k, (k==='玄米袋kg'||k==='歩留まり') && v !== '' && !isNaN(v) ? Number(v) : v];
+    });
+    api('saveSettings', { items: JSON.stringify(items) }).then(()=>{ toast('保存しました'); load(); })
+      .catch(err=>toast(err.message + '（GASの更新が必要かもしれません）'));
+    return;
+  }
   if(b.id === 'millAdd'){
     const v = $('#millNew').value; if(!v) return toast('日付を選んでください');
     api('saveMilling', { date:v, status:'予定' }).then(()=>{ toast('追加しました'); load(); }).catch(err=>toast(err.message)); return;
@@ -570,8 +838,14 @@ document.addEventListener('click', e => {
   }
 });
 
+let pvT;
 document.addEventListener('input', e => {
   const i = e.target;
+  if(i.dataset.pv || i.dataset.lp){
+    if(i.dataset.pv) PV[i.dataset.pv] = i.value;
+    else if(i.dataset.lp !== 'preset'){ LP[i.dataset.lp] = i.value === '' ? 0 : Number(i.value); lsJS(LKEY, LP); }
+    clearTimeout(pvT); pvT = setTimeout(pvPages, 250); return;
+  }
   if(i.dataset.f){ F[i.dataset.f] = i.value; return; }
   if(i.dataset.s){ S[i.dataset.s] = i.value; return; }
   if(i.dataset.t){ T[i.dataset.t] = i.value; return; }
@@ -588,6 +862,12 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   const i = e.target;
+  if(i.dataset.lp === 'preset'){
+    LP.preset = i.value;
+    const p = LBL_PRESETS.find(x => x.id === i.value);
+    if(p && p.id !== 'custom') ['cols','rows','w','h','top','left','gx','gy'].forEach(k => LP[k] = p[k]);
+    lsJS(LKEY, LP); pvControls(); pvPages(); return;
+  }
   if(i.dataset.num){ if(tab==='rsv') rRsv(); else if(tab==='shop') rShop(); else if(tab==='mill') rMill(); return; }
   if(i.dataset.m && i.tagName === 'SELECT'){ const d = i.dataset.m; M[d] = M[d] || {}; M[d][i.dataset.k] = i.value; enableSave(d); return; }
   if(i.dataset.tid){ saveTask(i.dataset.tid, i.dataset.tk, i.value); return; }
@@ -595,6 +875,7 @@ document.addEventListener('change', e => {
 function enableSave(d){ const b = document.querySelector(`[data-msave="${d}"]`); if(b){ b.disabled = false; b.classList.remove('sub'); } }
 
 window.addEventListener('online', flush);
+window.addEventListener('resize', () => { if(!$('#pv').hidden) pvScale(PV.mode === 'req'); });
 setInterval(flush, 20000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden){ load(true); flush(); } });
 

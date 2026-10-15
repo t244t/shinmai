@@ -14,7 +14,7 @@ const HEAD = {
                '受取予定日', '受取状況', '受取日', '備考', '登録日時', '受付ID'],
   '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時'],
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
-               '支払額', '状態', '備考'],
+               '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
 };
 
@@ -28,6 +28,20 @@ const DEFAULTS = {
     ['支払方法', '現金', '精米代'],
     ['販売期間日数', 30, '約1ヶ月で入れ替え'],
     ['販売開始日', '2026-10-23', '目安'],
+    ['玄米袋kg', 30, '玄米1袋の重さ'],
+    ['歩留まり', 0.9, '玄米→精米の目安（90%）'],
+    ['名称', '精米', '表示シール用'],
+    ['品種', '', '表示シール用（例：夢つくし）'],
+    ['産地', '福岡県', '表示シール用'],
+    ['産年', '令和8年産', '表示シール用'],
+    ['会社名', '株式会社 農・みのり', '依頼書・表示シール'],
+    ['郵便番号', '〒819-1152', '依頼書'],
+    ['住所', '福岡県糸島市飯原1675番地1', '依頼書・表示シール'],
+    ['TEL', '092-323-8700', '依頼書・表示シール'],
+    ['FAX', '092-322-7661', '依頼書'],
+    ['登録番号', 'T3290001095842', '依頼書'],
+    ['依頼先', '産栄株式会社　米のます屋　様', '依頼書'],
+    ['依頼書注記', '※　余りは、無地袋 ２Kg　に入れて下さい。　宜しくお願いします。', '依頼書'],
   ],
   '価格マスタ': [
     ['5kg', 5, 3300, 3570, 3000, 3385],
@@ -79,6 +93,7 @@ function doGet(e) {
     else if (a === 'saveTask') out = locked_(() => saveTask_(p));
     else if (a === 'savePrice') out = locked_(() => savePrice_(p));
     else if (a === 'saveStore') out = locked_(() => saveStore_(p));
+    else if (a === 'saveSettings') out = locked_(() => saveSettings_(JSON.parse(p.items)));
     else out = { ok: false, error: '不明なaction: ' + a };
   } catch (err) {
     out = { ok: false, error: String(err && err.message || err) };
@@ -106,6 +121,9 @@ function setup() {
   const ss = ss_();
   ss.setSpreadsheetTimeZone(TZ);
   Object.keys(HEAD).forEach(sheet_);
+  ensureSettings_();
+  const ml = sheet_('精米記録');
+  rows_(ml).forEach(r => millingFormulas_(ml, r._row));
   return 'OK';
 }
 
@@ -214,8 +232,30 @@ function n_(v) { const x = Number(v); return isFinite(x) ? x : 0; }
 
 function settings_() {
   const s = {};
+  DEFAULTS['設定'].forEach(d => s[d[0]] = d[1]); // 未登録のキーは初期値
   rows_(sheet_('設定')).forEach(r => { s[String(r['キー'])] = r['値'] instanceof Date ? d_(r['値']) : r['値']; });
   return s;
+}
+
+/** 設定シートに無いキーを末尾に追加（既存の値は変えない） */
+function ensureSettings_() {
+  const sh = sheet_('設定');
+  const have = {};
+  rows_(sh).forEach(r => have[String(r['キー'])] = true);
+  const add = DEFAULTS['設定'].filter(d => !have[d[0]]).map(d => toArr_(sh, { 'キー': d[0], '値': d[1], '説明': d[2] }));
+  appendRows_(sh, add);
+}
+
+function saveSettings_(items) {
+  const sh = sheet_('設定');
+  ensureSettings_();
+  const rows = rows_(sh);
+  items.forEach(([k, v]) => {
+    const r = rows.find(x => String(x['キー']) === String(k));
+    if (r) writeRow_(sh, r._row, { '値': v });
+    else appendRows_(sh, [toArr_(sh, { 'キー': k, '値': v })]);
+  });
+  return { ok: true };
 }
 
 function prices_() {
@@ -248,9 +288,15 @@ function getAll_() {
   }));
 
   const milling = rows_(sheet_('精米記録')).map(r => {
-    const b5 = n_(r['5kg袋数']), b2 = n_(r['2kg袋数']);
+    const detail = ['米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'].some(k => r[k] !== '' && r[k] !== undefined);
+    const b5k = detail ? n_(r['米袋5kg']) : n_(r['5kg袋数']);
+    const b5m = detail ? n_(r['無地袋5kg']) : 0;
+    const b2k = detail ? n_(r['米袋2kg']) : n_(r['2kg袋数']);
+    const b2m = detail ? n_(r['無地袋2kg']) : 0;
+    const b5 = b5k + b5m, b2 = b2k + b2m;
     return {
-      date: d_(r['精米日']), b5: b5, b2: b2, kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
+      date: d_(r['精米日']), gen: n_(r['玄米袋数']), b5k, b5m, b2k, b2m, b5, b2,
+      kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
       pay: n_(r['支払額']), status: String(r['状態'] || '予定'), note: String(r['備考']),
     };
   }).filter(m => m.date).sort((a, b) => a.date < b.date ? -1 : 1);
@@ -347,12 +393,20 @@ function saveMilling_(p) {
     millingFormulas_(sh, row);
   }
   const o = {};
-  if (p.b5 !== undefined) o['5kg袋数'] = Math.max(0, Math.floor(n_(p.b5)));
-  if (p.b2 !== undefined) o['2kg袋数'] = Math.max(0, Math.floor(n_(p.b2)));
+  const cnt = v => Math.max(0, Math.floor(n_(v)));
+  [['gen', '玄米袋数'], ['b5k', '米袋5kg'], ['b5m', '無地袋5kg'], ['b2k', '米袋2kg'], ['b2m', '無地袋2kg']]
+    .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = cnt(p[k]); });
   if (p.pay !== undefined) o['支払額'] = p.pay === '' ? '' : n_(p.pay);
   if (p.status !== undefined) o['状態'] = p.status;
   if (p.note !== undefined) o['備考'] = p.note;
   writeRow_(sh, row, o);
+  // 5kg/2kg の合計列（シートの数式用）を内訳から更新
+  const c = cols_(sh);
+  const v = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+  const g = h => n_(v[c[h] - 1]);
+  if (['米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'].some(h => v[c[h] - 1] !== '')) {
+    writeRow_(sh, row, { '5kg袋数': g('米袋5kg') + g('無地袋5kg'), '2kg袋数': g('米袋2kg') + g('無地袋2kg') });
+  }
   return { ok: true };
 }
 
@@ -365,7 +419,9 @@ function millingFormulas_(sh, r) {
   set('時期', '=IF(DAY(' + A + ')<=10,"上旬",IF(DAY(' + A + ')<=20,"中旬","下旬"))');
   set('持込日', '=' + A + '-1');
   set('精米量kg', '=' + L('5kg袋数') + r + '*価格マスタ!$B$2+' + L('2kg袋数') + r + '*価格マスタ!$B$3');
-  set('90kg判定', '=IF(' + L('精米量kg') + r + '=0,"",IF(' + L('精米量kg') + r + '>=設定!$B$4,"OK","不足"))');
+  // 玄米袋数があれば玄米の重さで、なければ袋詰め量で 90kg を判定
+  const base = 'IF(N(' + L('玄米袋数') + r + ')>0,' + L('玄米袋数') + r + '*30,' + L('精米量kg') + r + ')';
+  set('90kg判定', '=IF(' + base + '=0,"",IF(' + base + '>=設定!$B$4,"OK","不足"))');
 }
 
 function seedMilling_(sh) {
