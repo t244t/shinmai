@@ -351,10 +351,15 @@ function millView(m){
 }
 function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status === '未'); }
 
-/* 米袋・無地袋の在庫：最後の棚卸 ＋ その後の入庫 − 持ち込んだ袋（持込済・精米済） */
-const BAGS = [['b5k','米袋5kg'],['b5m','無地袋5kg'],['b2k','米袋2kg'],['b2m','無地袋2kg']];
+/* 米袋・無地袋・新米シールの在庫：最後の棚卸 ＋ その後の入庫 − 持ち込んだ袋（持込済・精米済）
+   新米シールは袋1枚に1枚（5kg・2kg、米袋・無地袋すべて） */
+const BAGS = [['b5k','米袋5kg'],['b5m','無地袋5kg'],['b2k','米袋2kg'],['b2m','無地袋2kg'],['seal','新米シール']];
 const BG = { kind:'入庫', bag:'米袋5kg', date:'', qty:'', note:'', sending:false }; // 入庫・棚卸フォーム
 function savedBags(m){ return m.b5k === undefined ? { b5k:m.b5||0, b5m:0, b2k:m.b2||0, b2m:0 } : m; }
+function bagUse(m, k){
+  const b = savedBags(m), n = x => Number(b[x]) || 0;
+  return k === 'seal' ? n('b5k') + n('b5m') + n('b2k') + n('b2m') : n(k);
+}
 function bagStock(){
   const logs = (D && D.bags) || [], td = today();
   const mill = ((D && D.milling) || []).filter(m => m.status !== '中止');
@@ -365,12 +370,12 @@ function bagStock(){
     const since = cnt ? cnt.date : '';                       // 棚卸はその日の作業後の枚数
     const inQty = mine.filter(b => b.kind === '入庫' && b.date > since).reduce((a, b) => a + b.qty, 0);
     const used = mill.filter(m => (m.status === '持込済' || m.status === '精米済') && addDays(m.date, -1) > since)
-      .reduce((a, m) => a + (Number(savedBags(m)[k]) || 0), 0);
+      .reduce((a, m) => a + bagUse(m, k), 0);
     const now = (cnt ? cnt.qty : 0) + inQty - used;
     // これからの予定で使う枚数と、足りなくなる最初の精米日
     let plan = 0, shortAt = '';
     mill.filter(m => m.status === '予定' && m.date >= td).forEach(m => {
-      const n = Number(savedBags(m)[k]) || 0;
+      const n = bagUse(m, k);
       plan += n;
       if(!shortAt && n > 0 && plan > now) shortAt = m.date;
     });
@@ -386,17 +391,17 @@ function bagCardHtml(){
   const bs = bagStock(), warns = bagWarnings(bs), td = today();
   const none = !bs.some(b => b.any);
   const hist = ((D && D.bags) || []).slice().sort((a, b) => a.date !== b.date ? (a.date < b.date ? 1 : -1) : (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 30);
-  return `<h2>袋の在庫</h2><div class="card">
-    ${none ? '<div class="mute" style="margin-bottom:8px">はじめに、今ある袋の枚数を「棚卸」で入れてください。</div>' : ''}
-    <div class="scroll"><table><tr><th>袋</th><th>在庫</th><th>予定分</th><th>予定後</th></tr>
+  return `<h2>袋・シールの在庫</h2><div class="card">
+    ${none ? '<div class="mute" style="margin-bottom:8px">はじめに、今ある袋とシールの枚数を「棚卸」で入れてください。</div>' : ''}
+    <div class="scroll"><table><tr><th>種類</th><th>在庫</th><th>予定分</th><th>予定後</th></tr>
       ${bs.map(b => b.any ? `<tr><td>${esc(b.name)}</td><td class="${b.now<0?'warn':''}"><b>${b.now}</b></td><td>${b.plan}</td>
         <td class="${b.after<0?'warn':''}">${b.after}</td></tr>`
         : `<tr><td>${esc(b.name)}</td><td colspan="3" class="mute">未登録</td></tr>`).join('')}</table></div>
     ${warns.map(w => `<div class="warn" style="margin-top:6px">⚠ ${esc(w)}</div>`).join('')}
-    <div class="mute" style="font-size:12px;margin-top:6px">精米日の状態を「持込済」か「精米済」にすると、その回の袋数が在庫から引かれます。</div>
+    <div class="mute" style="font-size:12px;margin-top:6px">精米日の状態を「持込済」か「精米済」にすると、その回の袋数が在庫から引かれます。新米シールは袋の合計枚数（1袋に1枚）を引きます。</div>
     <div class="grid2" style="margin-top:10px">
       <div><label class="f">区分</label><select data-bg="kind">${['入庫','棚卸'].map(x=>`<option ${BG.kind===x?'selected':''}>${x}</option>`).join('')}</select></div>
-      <div><label class="f">袋</label><select data-bg="bag">${BAGS.map(([,n])=>`<option ${BG.bag===n?'selected':''}>${n}</option>`).join('')}</select></div>
+      <div><label class="f">種類</label><select data-bg="bag">${BAGS.map(([,n])=>`<option ${BG.bag===n?'selected':''}>${n}</option>`).join('')}</select></div>
       <div><label class="f">日付</label><input type="date" data-bg="date" value="${esc(BG.date || td)}"></div>
       <div><label class="f">${BG.kind==='棚卸'?'数えた枚数':'入った枚数'}</label><input type="number" inputmode="numeric" min="0" data-bg="qty" value="${esc(BG.qty)}"></div>
     </div>
@@ -404,7 +409,7 @@ function bagCardHtml(){
     <div class="mute" style="font-size:12px;margin-top:4px">棚卸＝その日の作業が終わった後に数えた枚数。それより前の記録は計算に使いません。</div>
     <div class="btnrow"><button class="btn" id="bagAdd" ${BG.sending?'disabled':''}>${BG.sending?'記録中…':'記録する'}</button></div>
     ${hist.length ? `<details style="margin-top:8px"><summary class="mute">入庫・棚卸の履歴（${hist.length}件）</summary>
-      <div class="scroll"><table><tr><th>日付</th><th>袋</th><th>区分</th><th>枚数</th><th>備考</th><th></th></tr>
+      <div class="scroll"><table><tr><th>日付</th><th>種類</th><th>区分</th><th>枚数</th><th>備考</th><th></th></tr>
       ${hist.map(b => `<tr><td>${md(b.date)}</td><td>${esc(b.bag)}</td><td>${esc(b.kind)}</td><td>${b.qty}</td><td>${esc(b.note)}</td>
         <td><button class="btn sm ghost" data-delbag="${esc(b.clientId)}">✕</button></td></tr>`).join('')}</table></div></details>` : ''}
   </div>`;
@@ -467,7 +472,7 @@ function rHome(){
   const bs = bagStock();
   if(bs.some(b => b.any)){
     const warns = bagWarnings(bs);
-    h += `<h2>袋の在庫</h2><div class="kpis" style="grid-template-columns:repeat(${bs.filter(b => b.any).length === 3 ? 3 : 2},1fr)">${bs.filter(b => b.any).map(b => `<div class="kpi"><b class="${b.now<0||b.after<0?'warn':''}">${b.now}</b><small>${esc(b.name)}</small></div>`).join('')}</div>
+    h += `<h2>袋・シールの在庫</h2><div class="kpis" style="grid-template-columns:repeat(${(n => n === 4 ? 2 : Math.min(n, 3))(bs.filter(b => b.any).length)},1fr)">${bs.filter(b => b.any).map(b => `<div class="kpi"><b class="${b.now<0||b.after<0?'warn':''}">${b.now}</b><small>${esc(b.name)}</small></div>`).join('')}</div>
       ${warns.map(w => `<div class="card warn" style="margin-top:6px">⚠ ${esc(w)}</div>`).join('')}`;
   }
   h += `<h2>これからの7日間</h2><div class="card" style="padding:8px">${weekHtml()}

@@ -16,10 +16,10 @@ const HEAD = {
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
                '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
-  // 米袋・無地袋の入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
+  // 米袋・無地袋・新米シールの入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
   '袋在庫':   ['日付', '袋', '区分', '数量', '備考', '受付ID', '登録日時'],
 };
-const BAGS = ['米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'];
+const BAGS = ['米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '新米シール'];
 
 const DEFAULTS = {
   '設定': [
@@ -452,7 +452,7 @@ function deleteShopLog_(clientId) {
 function addBagLog_(d) {
   const sh = sheet_('袋在庫');
   if (d.clientId && rows_(sh).some(r => String(r['受付ID']) === String(d.clientId))) return { ok: true, duplicate: true };
-  if (BAGS.indexOf(d.bag) < 0) throw new Error('袋の種類が不正です');
+  if (BAGS.indexOf(d.bag) < 0) throw new Error('種類が不正です（GASを最新にしてください）');
   if (['入庫', '棚卸'].indexOf(d.kind) < 0) throw new Error('区分が不正です');
   const qty = Math.floor(n_(d.qty));
   if (d.kind === '入庫' && qty === 0) throw new Error('枚数を入力してください');
