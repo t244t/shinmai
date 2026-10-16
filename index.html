@@ -147,7 +147,7 @@ a{color:var(--blue)}
 .rq td.v{width:9mm;line-height:1.7;font-size:3mm}
 .rq .note{border-bottom:.6mm solid #000;text-align:center;padding:4mm 0 1.5mm;font-size:3.2mm}
 /* 表示シール */
-.lbl{position:absolute;box-sizing:border-box;padding:1.1mm}
+.lbl{position:absolute;box-sizing:border-box;padding:var(--lpad,1.1mm)}
 .lbl .in{width:100%;height:100%;overflow:hidden;display:flex;align-items:stretch;gap:.8mm}
 .lbl .tb{flex:1;min-width:0;height:100%;display:flex;align-items:center}
 .lbl .bc{flex:none;box-sizing:border-box;border:.3mm solid #000;padding:0 .4mm;display:flex;align-items:center;justify-content:center}
@@ -159,6 +159,8 @@ a{color:var(--blue)}
 .lbl th,.lbl td{padding:.06em .28em;white-space:nowrap;text-align:left;font-weight:400;border:0;color:#000}
 .lbl th{width:1%;font-size:inherit;color:#000;font-weight:600;text-align:center;border-right:.2mm solid #000;border-bottom:.2mm solid #000;padding:.06em .3em}
 .lbl td.c{text-align:center}
+.wrapok .lbl td.w{white-space:normal}
+.lbl .nw{white-space:nowrap}
 .lbl td.hd{border:.2mm solid #000}
 .lbl tr.e td{border-bottom:.2mm solid #000}
 .screen .lbl{outline:.2mm dashed #bbb}
@@ -1048,8 +1050,15 @@ const LBL_PRESETS = [
   { id:'custom', name:'カスタム（寸法を入力）' },
 ].map(p => Object.assign({ top:0, left:0, gx:0, gy:0 }, p));
 const LKEY = 'shinmai_label_v2';
+/** シールの内側の余白（mm）。プリンターのずれで枠からはみ出さないように、端から離して印刷する */
+function lblPad(){
+  const v = LP.pad && LP.pad[LP.preset];
+  if(v !== undefined && v !== '' && !isNaN(v)) return Math.max(0, Number(v));
+  const g = lblGeom();
+  return (+g.w >= 100 && +g.h >= 55) ? 3 : 1.5;
+}
 const LP = Object.assign({ preset:'18', cols:3, rows:6, w:70, h:49.5, top:0, left:0, gx:0, gy:0, dx:0, dy:0,
-  bc:{ '10':true }, bcMag:0.8 }, lsJ(LKEY, {}));   // bc: 用紙ごとのバーコード欄 ON/OFF（10面は初期ON）
+  bc:{ '10':true }, bcMag:0.8, pad:{} }, lsJ(LKEY, {}));   // bc: 用紙ごとのバーコード欄 ON/OFF（10面は初期ON）
 const bcOn = () => !!(LP.bc || {})[LP.preset];
 
 /* ===== JAN（EAN-13）バーコード ===== */
@@ -1179,6 +1188,10 @@ function pvControls(){
       ${num('dx','位置調整 →mm')}${num('dy','位置調整 ↓mm')}
     </div>
     <div class="g3" style="align-items:end">
+      <div><label class="f">内側の余白 mm</label><input type="number" step="0.5" min="0" data-lp="pad" value="${lblPad()}"></div>
+      <div class="mute" style="grid-column:span 2;font-size:12px">枠からはみ出すときは大きくします（文字は自動で小さくなります）</div>
+    </div>
+    <div class="g3" style="align-items:end">
       <label class="row" style="min-height:38px"><input type="checkbox" id="bcToggle" ${bcOn()?'checked':''}> バーコード欄</label>
       ${bcOn() ? `<div><label class="f">バーコード倍率</label><select data-lp="bcMag">${[0.8,0.9,1.0].map(x=>`<option value="${x}" ${Number(LP.bcMag)===x?'selected':''}>${Math.round(x*100)}%</option>`).join('')}</select></div>` : ''}
     </div>
@@ -1208,9 +1221,10 @@ function reqCopy(v, left){
 function labelHtml(size){
   const j = (a, b) => [a, b].filter(x => String(x||'').trim() !== '').join('　');
   const conf = [[ST('確認文言1'), ST('確認割合1')], [ST('確認文言2'), ST('確認割合2')]]
-    .filter(([t]) => String(t||'').trim() !== '').map(([t, r]) => j(t, r));
+    .filter(([t]) => String(t||'').trim() !== '')
+    .map(([t, r]) => `<span class="nw">${esc(t)}</span>${String(r||'').trim() ? '　<span class="nw">' + esc(r) + '</span>' : ''}`);
   const span = 3 + conf.length;
-  const rows = conf.map((t, i) => `<tr class="${i === conf.length-1 ? 'e' : ''}"><td colspan="3" class="w">${esc(t)}</td></tr>`).join('');
+  const rows = conf.map((t, i) => `<tr class="${i === conf.length-1 ? 'e' : ''}"><td colspan="3" class="w">${t}</td></tr>`).join('');
   return `<table>
     <tr class="e"><th>名　　称</th><td colspan="3" class="c">${esc(ST('名称'))}</td></tr>
     <tr><th rowspan="${span}">原料玄米</th><td class="c hd">産　地</td><td class="c hd">品　種</td><td class="c hd">産　年</td></tr>
@@ -1262,15 +1276,25 @@ function fitLabels(){
   const first = document.querySelector('#pvScale .lbl:not(.skip):not(.empty) .in');
   const info = $('#pvInfo');
   if(!first){ if(info) info.textContent = '印刷するシールがありません'; return; }
-  const t = first.querySelector('table');
   const g = lblGeom();
-  // テンプレートの文字サイズ（8pt未満なら8pt）を上限に、入りきる大きさまで縮める
-  let fs = Math.max(g.pt || 11, 8) * 25.4 / 72;
-  for(; fs > 1.2; fs -= 0.05){
-    $('#pvScale').style.setProperty('--lfs', fs.toFixed(2)+'mm');
+  $('#pvScale').style.setProperty('--lpad', lblPad() + 'mm');
+  // 5kg・2kg の両方で測る。印刷時のフォントの差で溢れないように 4% の余裕を残す
+  const tables = [...new Set([...document.querySelectorAll('#pvScale .lbl:not(.skip):not(.empty) .in')]
+    .map(x => x.querySelector('table')))].slice(0, 40);
+  const fits = () => tables.every(t => {
     const box = t.parentElement;
-    if(t.scrollWidth <= box.clientWidth + 0.5 && t.offsetHeight <= box.clientHeight + 0.5) break;
-  }
+    t.style.height = 'auto'; t.style.width = '96%';             // 引き伸ばす前の本来の大きさで測る
+    const ok = t.offsetWidth <= box.clientWidth * 0.96 + 0.5 && t.offsetHeight <= box.clientHeight * 0.96;
+    t.style.height = ''; t.style.width = '';
+    return ok;
+  });
+  // テンプレートの文字サイズ（8pt未満なら8pt）を上限に、入りきる大きさまで縮める
+  // まず1行のまま8ptまで試し、入らなければ確認文言を2行に折り返して試す
+  const sc = $('#pvScale'), hi = Math.max(g.pt || 11, 8) * 25.4 / 72, min8 = 8 * 25.4 / 72;
+  const tryFit = lo => { for(let f = hi; f >= lo; f -= 0.05){ sc.style.setProperty('--lfs', f.toFixed(2)+'mm'); if(fits()) return f; } return 0; };
+  sc.classList.remove('wrapok');
+  let fs = tryFit(min8);
+  if(!fs){ sc.classList.add('wrapok'); fs = tryFit(1.2) || 1.2; sc.style.setProperty('--lfs', fs.toFixed(2)+'mm'); }
   const pt = fs * 72 / 25.4;
   const n = (Math.floor(+PV.n5||0) + Math.floor(+PV.n2||0));
   const pages = document.querySelectorAll('#pvScale .page').length;
@@ -1482,6 +1506,7 @@ document.addEventListener('input', e => {
   const i = e.target;
   if(i.dataset.pv || i.dataset.lp){
     if(i.dataset.pv) PV[i.dataset.pv] = i.value;
+    else if(i.dataset.lp === 'pad'){ LP.pad = Object.assign({}, LP.pad, { [LP.preset]: i.value === '' ? '' : Number(i.value) }); lsJS(LKEY, LP); }
     else if(i.dataset.lp !== 'preset'){ LP[i.dataset.lp] = i.value === '' ? 0 : Number(i.value); lsJS(LKEY, LP); }
     if(i.dataset.lp === 'bcMag'){ pvPages(); return; }
     clearTimeout(pvT); pvT = setTimeout(pvPages, 250); return;
