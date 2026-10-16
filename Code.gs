@@ -16,7 +16,10 @@ const HEAD = {
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
                '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
+  // 米袋・無地袋の入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
+  '袋在庫':   ['日付', '袋', '区分', '数量', '備考', '受付ID', '登録日時'],
 };
+const BAGS = ['米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'];
 
 const DEFAULTS = {
   '設定': [
@@ -105,6 +108,8 @@ function doGet(e) {
     else if (a === 'addShopLogs') out = locked_(() => addShopLogs_(JSON.parse(p.items)));
     else if (a === 'deleteShopLog') out = locked_(() => deleteShopLog_(p.clientId));
     else if (a === 'saveMilling') out = locked_(() => saveMilling_(p));
+    else if (a === 'addBagLog') out = locked_(() => addBagLog_(JSON.parse(p.data)));
+    else if (a === 'deleteBagLog') out = locked_(() => deleteBagLog_(p.clientId));
     else if (a === 'saveTask') out = locked_(() => saveTask_(p));
     else if (a === 'savePrice') out = locked_(() => savePrice_(p));
     else if (a === 'saveStore') out = locked_(() => saveStore_(p));
@@ -365,7 +370,12 @@ function getAll_() {
     owner: String(r['担当']), status: String(r['状態'] || '未着手'), note: String(r['備考']),
   }));
 
-  return { ok: true, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks };
+  const bags = rows_(sheet_('袋在庫')).map(r => ({
+    date: d_(r['日付']), bag: String(r['袋']), kind: String(r['区分']), qty: n_(r['数量']),
+    note: String(r['備考']), clientId: String(r['受付ID']), createdAt: dt_(r['登録日時']),
+  })).filter(b => b.date && BAGS.indexOf(b.bag) >= 0);
+
+  return { ok: true, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks, bags };
 }
 
 /* ---------------- 予約 ---------------- */
@@ -431,6 +441,31 @@ function addShopLogs_(items) {
 
 function deleteShopLog_(clientId) {
   const sh = sheet_('店舗実績');
+  const r = rows_(sh).find(x => String(x['受付ID']) === String(clientId));
+  if (!r) throw new Error('記録が見つかりません');
+  sh.deleteRow(r._row);
+  return { ok: true };
+}
+
+/* ---------------- 袋在庫 ---------------- */
+
+function addBagLog_(d) {
+  const sh = sheet_('袋在庫');
+  if (d.clientId && rows_(sh).some(r => String(r['受付ID']) === String(d.clientId))) return { ok: true, duplicate: true };
+  if (BAGS.indexOf(d.bag) < 0) throw new Error('袋の種類が不正です');
+  if (['入庫', '棚卸'].indexOf(d.kind) < 0) throw new Error('区分が不正です');
+  const qty = Math.floor(n_(d.qty));
+  if (d.kind === '入庫' && qty === 0) throw new Error('枚数を入力してください');
+  if (d.kind === '棚卸' && qty < 0) throw new Error('枚数が不正です');
+  appendRows_(sh, [toArr_(sh, {
+    '日付': d_(d.date) || todayStr_(), '袋': d.bag, '区分': d.kind, '数量': qty,
+    '備考': d.note || '', '受付ID': d.clientId || '', '登録日時': nowStr_(),
+  })]);
+  return { ok: true };
+}
+
+function deleteBagLog_(clientId) {
+  const sh = sheet_('袋在庫');
   const r = rows_(sh).find(x => String(x['受付ID']) === String(clientId));
   if (!r) throw new Error('記録が見つかりません');
   sh.deleteRow(r._row);

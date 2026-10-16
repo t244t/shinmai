@@ -351,6 +351,84 @@ function millView(m){
 }
 function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status === '未'); }
 
+/* 米袋・無地袋の在庫：最後の棚卸 ＋ その後の入庫 − 持ち込んだ袋（持込済・精米済） */
+const BAGS = [['b5k','米袋5kg'],['b5m','無地袋5kg'],['b2k','米袋2kg'],['b2m','無地袋2kg']];
+const BG = { kind:'入庫', bag:'米袋5kg', date:'', qty:'', note:'', sending:false }; // 入庫・棚卸フォーム
+function savedBags(m){ return m.b5k === undefined ? { b5k:m.b5||0, b5m:0, b2k:m.b2||0, b2m:0 } : m; }
+function bagStock(){
+  const logs = (D && D.bags) || [], td = today();
+  const mill = ((D && D.milling) || []).filter(m => m.status !== '中止');
+  return BAGS.map(([k, name]) => {
+    const mine = logs.filter(b => b.bag === name);
+    const cnt = mine.filter(b => b.kind === '棚卸')
+      .sort((a, b) => a.date !== b.date ? (a.date < b.date ? -1 : 1) : (a.createdAt < b.createdAt ? -1 : 1)).pop();
+    const since = cnt ? cnt.date : '';                       // 棚卸はその日の作業後の枚数
+    const inQty = mine.filter(b => b.kind === '入庫' && b.date > since).reduce((a, b) => a + b.qty, 0);
+    const used = mill.filter(m => (m.status === '持込済' || m.status === '精米済') && addDays(m.date, -1) > since)
+      .reduce((a, m) => a + (Number(savedBags(m)[k]) || 0), 0);
+    const now = (cnt ? cnt.qty : 0) + inQty - used;
+    // これからの予定で使う枚数と、足りなくなる最初の精米日
+    let plan = 0, shortAt = '';
+    mill.filter(m => m.status === '予定' && m.date >= td).forEach(m => {
+      const n = Number(savedBags(m)[k]) || 0;
+      plan += n;
+      if(!shortAt && n > 0 && plan > now) shortAt = m.date;
+    });
+    return { k, name, now, plan, after: now - plan, shortAt, counted: !!cnt, any: mine.length > 0 };
+  });
+}
+function bagWarnings(bs){
+  return bs.filter(b => b.any && (b.now < 0 || b.shortAt)).map(b => b.now < 0
+    ? `${b.name}の在庫がマイナスです（棚卸で実際の枚数を入れてください）`
+    : `${b.name}が${md(b.shortAt)}の精米から足りません（予定分まで あと${-b.after}枚）`);
+}
+function bagCardHtml(){
+  const bs = bagStock(), warns = bagWarnings(bs), td = today();
+  const none = !bs.some(b => b.any);
+  const hist = ((D && D.bags) || []).slice().sort((a, b) => a.date !== b.date ? (a.date < b.date ? 1 : -1) : (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 30);
+  return `<h2>袋の在庫</h2><div class="card">
+    ${none ? '<div class="mute" style="margin-bottom:8px">はじめに、今ある袋の枚数を「棚卸」で入れてください。</div>' : ''}
+    <div class="scroll"><table><tr><th>袋</th><th>在庫</th><th>予定分</th><th>予定後</th></tr>
+      ${bs.map(b => b.any ? `<tr><td>${esc(b.name)}</td><td class="${b.now<0?'warn':''}"><b>${b.now}</b></td><td>${b.plan}</td>
+        <td class="${b.after<0?'warn':''}">${b.after}</td></tr>`
+        : `<tr><td>${esc(b.name)}</td><td colspan="3" class="mute">未登録</td></tr>`).join('')}</table></div>
+    ${warns.map(w => `<div class="warn" style="margin-top:6px">⚠ ${esc(w)}</div>`).join('')}
+    <div class="mute" style="font-size:12px;margin-top:6px">精米日の状態を「持込済」か「精米済」にすると、その回の袋数が在庫から引かれます。</div>
+    <div class="grid2" style="margin-top:10px">
+      <div><label class="f">区分</label><select data-bg="kind">${['入庫','棚卸'].map(x=>`<option ${BG.kind===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div><label class="f">袋</label><select data-bg="bag">${BAGS.map(([,n])=>`<option ${BG.bag===n?'selected':''}>${n}</option>`).join('')}</select></div>
+      <div><label class="f">日付</label><input type="date" data-bg="date" value="${esc(BG.date || td)}"></div>
+      <div><label class="f">${BG.kind==='棚卸'?'数えた枚数':'入った枚数'}</label><input type="number" inputmode="numeric" min="0" data-bg="qty" value="${esc(BG.qty)}"></div>
+    </div>
+    <label class="f">備考</label><input type="text" data-bg="note" value="${esc(BG.note)}" placeholder="仕入れ先など">
+    <div class="mute" style="font-size:12px;margin-top:4px">棚卸＝その日の作業が終わった後に数えた枚数。それより前の記録は計算に使いません。</div>
+    <div class="btnrow"><button class="btn" id="bagAdd" ${BG.sending?'disabled':''}>${BG.sending?'記録中…':'記録する'}</button></div>
+    ${hist.length ? `<details style="margin-top:8px"><summary class="mute">入庫・棚卸の履歴（${hist.length}件）</summary>
+      <div class="scroll"><table><tr><th>日付</th><th>袋</th><th>区分</th><th>枚数</th><th>備考</th><th></th></tr>
+      ${hist.map(b => `<tr><td>${md(b.date)}</td><td>${esc(b.bag)}</td><td>${esc(b.kind)}</td><td>${b.qty}</td><td>${esc(b.note)}</td>
+        <td><button class="btn sm ghost" data-delbag="${esc(b.clientId)}">✕</button></td></tr>`).join('')}</table></div></details>` : ''}
+  </div>`;
+}
+async function addBag(){
+  const qty = Math.floor(Number(BG.qty));
+  if(BG.qty === '' || isNaN(qty) || qty < 0) return toast('枚数を入力してください');
+  if(BG.kind === '入庫' && qty === 0) return toast('枚数を入力してください');
+  BG.sending = true; rMill();
+  try{
+    await api('addBagLog', { data: JSON.stringify({ clientId:cid(), kind:BG.kind, bag:BG.bag, date:BG.date || today(), qty, note:BG.note }) });
+    toast(`${BG.bag}を${BG.kind}しました（${qty}枚）`);
+    Object.assign(BG, { qty:'', note:'' });
+    await load();
+  }catch(err){ toast(err.message + '（GASの更新が必要かもしれません）'); }
+  finally{ BG.sending = false; if(tab === 'mill') rMill(); }
+}
+async function delBag(id){
+  if(!id) return toast('この記録は取り消せません（シートで消してください）');
+  if(!confirm('この記録を取り消しますか？')) return;
+  try{ await api('deleteBagLog', { clientId:id }); toast('取り消しました'); await load(); }
+  catch(err){ toast(err.message); }
+}
+
 /* ===== 描画 ===== */
 function render(bg){
   $('#setupBanner').hidden = !!gasUrl();
@@ -386,6 +464,12 @@ function rHome(){
       ${v.short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-v.base}kg</div>` : ''}
       ${!v.base ? '<div class="mute" style="margin-top:6px">袋数が未入力です（精米タブ）</div>' : ''}</div>`;
   } else h += '<div class="card mute">予定はありません</div>';
+  const bs = bagStock();
+  if(bs.some(b => b.any)){
+    const warns = bagWarnings(bs);
+    h += `<h2>袋の在庫</h2><div class="kpis" style="grid-template-columns:repeat(${bs.filter(b => b.any).length === 3 ? 3 : 2},1fr)">${bs.filter(b => b.any).map(b => `<div class="kpi"><b class="${b.now<0||b.after<0?'warn':''}">${b.now}</b><small>${esc(b.name)}</small></div>`).join('')}</div>
+      ${warns.map(w => `<div class="card warn" style="margin-top:6px">⚠ ${esc(w)}</div>`).join('')}`;
+  }
   h += `<h2>これからの7日間</h2><div class="card" style="padding:8px">${weekHtml()}
     <div class="mute" style="font-size:12px;margin-top:6px">タップで精米タブのカレンダーへ</div></div>`;
 
@@ -835,6 +919,8 @@ function rMill(){
   el.innerHTML = `<div class="card mute">毎週火・木に精米（${esc(ST('持込時間'))}に前日持ち込み）。${minKg()}kg以上から・支払いは現金。<br>
     参考：未受取の予約 5kg×${o5}・2kg×${o2}／店舗の残り 5kg×${r5}・2kg×${r2}</div>
   <div class="card" id="millCal">${calHtml()}</div>
+  ${bagCardHtml()}
+  <h2>精米日ごとの袋数</h2>
   <div class="list">${D.milling.map(m => {
     const v = millView(m);
     const past = m.date < td;
@@ -1337,6 +1423,8 @@ document.addEventListener('click', e => {
       .catch(err=>toast(err.message + '（GASの更新が必要かもしれません）'));
     return;
   }
+  if(b.id === 'bagAdd'){ addBag(); return; }
+  if('delbag' in b.dataset){ delBag(b.dataset.delbag); return; }
   if(b.id === 'millAdd'){
     const v = $('#millNew').value; if(!v) return toast('日付を選んでください');
     api('saveMilling', { date:v, status:'予定' }).then(()=>{ toast('追加しました'); load(); }).catch(err=>toast(err.message)); return;
@@ -1394,6 +1482,7 @@ document.addEventListener('input', e => {
     clearTimeout(pvT); pvT = setTimeout(pvPages, 250); return;
   }
   if(i.dataset.f){ F[i.dataset.f] = i.value; return; }
+  if(i.dataset.bg && i.tagName === 'INPUT'){ BG[i.dataset.bg] = i.value; return; }
   if(i.dataset.set && /^JAN/.test(i.dataset.set)){ janPreviewAll(); return; }
   if(i.dataset.s){ S[i.dataset.s] = i.value; return; }
   if(i.dataset.t){ T[i.dataset.t] = i.value; return; }
@@ -1416,6 +1505,7 @@ document.addEventListener('change', e => {
       .catch(err => toast(err.message));
     return;
   }
+  if(i.dataset.bg && i.tagName === 'SELECT'){ BG[i.dataset.bg] = i.value; if(i.dataset.bg === 'kind') rMill(); return; }
   if(i.id === 'shipFile'){ shipLoad(i.files && i.files[0]); return; }
   if(i.id === 'shipDate'){ SHIP.date = i.value; return; }
   if(i.id === 'shipRound'){ SHIP.round = Number(i.value) || 1; return; }
