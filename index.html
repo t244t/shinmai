@@ -252,7 +252,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/19 スマホ表示修正版2';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/19 歩留まり10.5%減';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -264,6 +264,7 @@ const gasUrl = () => (lsGet(K.url) || DEFAULT_GAS_URL).trim();
 /* ===== 共通 ===== */
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct = x => String(Math.round(Number(x) * 1000) / 10);   // 0.895 → 89.5
 const yen = n => '¥' + Number(n||0).toLocaleString('ja-JP');
 const pad = n => ('0'+n).slice(-2);
 function today(){ const d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
@@ -301,7 +302,7 @@ const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:
 let rsvFilter = '未', rsvQuery = '';
 const S = { store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0, by: lsGet(K.by)||'', note:'' }; // 店舗入力
 const M = {};                      // 精米の編集中データ { date: {gen,b5k,b5m,b2k,b2m,pay,status,note} }
-const DEF_SET = { '玄米袋kg':30, '歩留まり':0.9, '名称':'精　　米', '原料区分':'単一原料米', '品種':'元気つくし', '産地':'福岡県', '産年':'令和8年',
+const DEF_SET = { '玄米袋kg':30, '歩留まり':0.895, '名称':'精　　米', '原料区分':'単一原料米', '品種':'元気つくし', '産地':'福岡県', '産年':'令和8年',
   '産地割合':'100%', '品種割合':'100%', '産年割合':'100%', '確認文言1':'JA農産物検査証明による確認米', '確認割合1':'10割100%',
   '確認文言2':'苗の購入・栽培作業記録による確認米', '確認割合2':'10割100%', '販売者電話':'092-324-8050', 'シール単価':1.3, 'JAN5kg':'2186410000000', 'JAN2kg':'2186410100000', 'JAN方式':'価格入り',
   '会社名':'株式会社 農・みのり', '郵便番号':'〒819-1152', '住所':'福岡県糸島市飯原1675番地1', 'TEL':'092-323-8700',
@@ -1004,7 +1005,7 @@ function rMill(){
         ${sp('b2k','米袋 2kg')}${sp('b2m','無地袋 2kg')}
       </div>
       <div class="calc">袋詰め：5kg×${v.b5}・2kg×${v.b2} ＝ <b>${v.kg}kg</b>
-        ${v.genKg?`<br>玄米 ${v.gen?`${ST('玄米袋kg')}kg×${v.gen}袋`:''}${v.gen&&v.genx?'＋':''}${v.genx?`端数${v.genx}kg`:''} ＝ ${v.genKg}kg → 精米後 約${v.expect}kg（歩留まり${Math.round(ST('歩留まり')*100)}%）
+        ${v.genKg?`<br>玄米 ${v.gen?`${ST('玄米袋kg')}kg×${v.gen}袋`:''}${v.gen&&v.genx?'＋':''}${v.genx?`端数${v.genx}kg`:''} ＝ ${v.genKg}kg → 精米後 約${v.expect}kg（${pct(1-Number(ST('歩留まり')))}%減・歩留まり${pct(ST('歩留まり'))}%）
           <br>${rest>=0?`余り 約${rest}kg（無地袋2kgへ）`:`<span class="warn">袋詰めが見込みより${-rest}kg多い</span>`}`:''}</div>
       ${v.status === '精米済' ? `<div class="act">
         <div class="row between"><b>精米の実績</b><span class="mute" style="font-size:12px">依頼と違う所だけ直す</span></div>
@@ -1469,7 +1470,7 @@ function rSet(){
       <div class="mute" style="margin-top:6px">確認文言や割合は空欄にするとシールに出ません。</div></div>
     <h2>精米加工依頼書</h2><div class="card">
       ${[['依頼先','依頼先（精米所）'],['郵便番号','郵便番号'],['TEL','TEL'],['FAX','FAX'],['登録番号','登録番号'],['依頼書注記','依頼書の注記'],
-         ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.9＝90%）']].map(fld).join('')}
+         ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.895＝10.5%減）']].map(fld).join('')}
       <div class="mute" style="margin-top:6px">会社名・住所は表示シールと共通です。</div>
       <button class="btn full" id="infoSave" style="margin-top:12px">保存</button></div>`; })() : ''}
   <h2>この端末</h2><div class="card">
