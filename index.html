@@ -151,6 +151,7 @@ a{color:var(--blue)}
 .rq td{border:.25mm solid #000;height:12mm;padding:0 2mm;text-align:center;font-size:3.3mm}
 .rq table.gen{border:.6mm solid #000}
 .rq table.gen td{border:0;height:15mm}
+.rq table.gen tr.fr td{height:8mm;padding-bottom:2mm}
 .rq td.n{font-size:5mm;font-weight:600;text-align:right}
 .rq td.v{width:9mm;line-height:1.7;font-size:3mm}
 .rq .note{border-bottom:.6mm solid #000;text-align:center;padding:4mm 0 1.5mm;font-size:3.2mm}
@@ -349,13 +350,13 @@ function millView(m){
   const e = M[m.date] || {};
   const src = m.b5k === undefined ? Object.assign({}, m, { b5k:m.b5||0, b2k:m.b2||0 }) : m; // 旧形式のデータ
   const v = k => Number(e[k] ?? src[k] ?? 0) || 0;
-  const r = { date:m.date, gen:v('gen'), b5k:v('b5k'), b5m:v('b5m'), b2k:v('b2k'), b2m:v('b2m'),
+  const r = { date:m.date, gen:v('gen'), genx:v('genx'), b5k:v('b5k'), b5m:v('b5m'), b2k:v('b2k'), b2m:v('b2m'),
     status: e.status ?? m.status, pay: e.pay ?? (m.pay||''), note: e.note ?? m.note, dirty: Object.keys(e).length>0 };
   r.b5 = r.b5k + r.b5m; r.b2 = r.b2k + r.b2m;
   r.kg = r.b5*price('5kg').kg + r.b2*price('2kg').kg;            // 袋詰めする量
-  r.genKg = r.gen * Number(ST('玄米袋kg'));                       // 持ち込む玄米
+  r.genKg = Math.round((r.gen * Number(ST('玄米袋kg')) + r.genx) * 10) / 10; // 持ち込む玄米（袋＋端数）
   r.expect = Math.floor(r.genKg * Number(ST('歩留まり')));         // 精米後の見込み
-  r.base = r.gen ? r.genKg : r.kg;                                 // 90kg判定の基準
+  r.base = r.genKg ? r.genKg : r.kg;                               // 90kg判定の基準
   r.short = r.base > 0 && r.base < minKg();
   return r;
 }
@@ -484,8 +485,8 @@ function rHome(){
     const v = millView(next);
     h += `<div class="card"><div class="row between"><div><div class="big">${md(v.date)}</div>
       <div class="mute">${period(v.date)}・持ち込み ${md(addDays(v.date,-1))}</div></div>
-      <div style="text-align:right"><div class="big ${v.base? (v.short?'warn':'okc') : ''}">${v.gen?`玄米${v.genKg}`:v.kg}kg</div>
-      <div class="mute">${v.gen?`玄米${v.gen}袋・`:''}5kg×${v.b5}・2kg×${v.b2}</div></div></div>
+      <div style="text-align:right"><div class="big ${v.base? (v.short?'warn':'okc') : ''}">${v.genKg?`玄米${v.genKg}`:v.kg}kg</div>
+      <div class="mute">${v.gen?`玄米${v.gen}袋${v.genx?'＋'+v.genx+'kg':''}・`:v.genx?`玄米${v.genx}kg・`:''}5kg×${v.b5}・2kg×${v.b2}</div></div></div>
       ${v.short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-v.base}kg</div>` : ''}
       ${!v.base ? '<div class="mute" style="margin-top:6px">袋数が未入力です（精米タブ）</div>' : ''}</div>`;
   } else h += '<div class="card mute">予定はありません</div>';
@@ -518,7 +519,7 @@ function rHome(){
 /* --- 予約 --- */
 function stepper(key, val){
   return `<div class="stepper"><button type="button" data-step="${key}" data-d="-1">−</button>
-    <input type="number" inputmode="numeric" min="0" data-num="${key}" value="${val}">
+    <input type="number" inputmode="${/genx$/.test(key)?'decimal':'numeric'}" min="0" step="${/genx$/.test(key)?'0.1':'1'}" data-num="${key}" value="${val}">
     <button type="button" data-step="${key}" data-d="1">＋</button></div>`;
 }
 function rRsv(){
@@ -955,15 +956,15 @@ function rMill(){
       <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
         <div class="mute">持ち込み ${md(addDays(m.date,-1))}</div></div>
         <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
-        <div class="mute" style="font-size:11px">${v.gen?'玄米で判定':'袋詰め量で判定'}</div>
+        <div class="mute" style="font-size:11px">${v.genKg?'玄米で判定':'袋詰め量で判定'}</div>
         ${v.short?`<div class="warn" style="font-size:12px">あと${minKg()-v.base}kg</div>`:''}</div></div>
       <div class="millgrid" style="margin-top:4px">
-        ${sp('gen','玄米（'+ST('玄米袋kg')+'kg袋）')}<div></div>
+        ${sp('gen','玄米（'+ST('玄米袋kg')+'kg袋）')}${sp('genx','玄米の端数（kg）')}
         ${sp('b5k','米袋 5kg')}${sp('b5m','無地袋 5kg')}
         ${sp('b2k','米袋 2kg')}${sp('b2m','無地袋 2kg')}
       </div>
       <div class="calc">袋詰め：5kg×${v.b5}・2kg×${v.b2} ＝ <b>${v.kg}kg</b>
-        ${v.gen?`<br>玄米 ${v.genKg}kg → 精米後 約${v.expect}kg（歩留まり${Math.round(ST('歩留まり')*100)}%）
+        ${v.genKg?`<br>玄米 ${v.gen?`${ST('玄米袋kg')}kg×${v.gen}袋`:''}${v.gen&&v.genx?'＋':''}${v.genx?`端数${v.genx}kg`:''} ＝ ${v.genKg}kg → 精米後 約${v.expect}kg（歩留まり${Math.round(ST('歩留まり')*100)}%）
           <br>${rest>=0?`余り 約${rest}kg（無地袋2kgへ）`:`<span class="warn">袋詰めが見込みより${-rest}kg多い</span>`}`:''}</div>
       <div class="grid2">
         <div><label class="f">状態</label><select data-m="${m.date}" data-k="status">
@@ -1230,7 +1231,8 @@ function reqCopy(v, left){
       <div class="from"><b>${esc(ST('会社名'))}</b><br>${esc(ST('郵便番号'))}<br>${esc(ST('住所'))}<br>
         TEL${esc(ST('TEL'))}　FAX${esc(ST('FAX'))}<br>【 登録番号 ${esc(ST('登録番号'))} 】</div></div>
     <table class="gen"><tr><td style="width:18%">玄　米</td><td>${esc(ST('玄米袋kg'))}Kg</td><td class="n">${z(v.gen)}</td><td>袋</td>
-      <td>合計</td><td class="n">${v.gen? v.genKg : ''}</td><td>Kg</td></tr></table>
+      <td>合計</td><td class="n">${v.genKg ? v.genKg : ''}</td><td>Kg</td></tr>
+      ${v.genx ? `<tr class="fr"><td></td><td>端　数</td><td class="n">${v.genx}</td><td>Kg</td><td></td><td></td><td></td></tr>` : ''}</table>
     <table><tr><td rowspan="4" class="v">精<br>米<br>加<br>工<br>後</td>${row('米袋','5kg',v.b5k).slice(4)}
       ${row('無地袋','5kg',v.b5m)}${row('米袋','2kg',v.b2k)}${row('無地袋','2kg',v.b2m)}</table>
     <div class="note">${esc(ST('依頼書注記'))}</div></div>`;
@@ -1536,7 +1538,8 @@ document.addEventListener('input', e => {
   if(i.dataset.t){ T[i.dataset.t] = i.value; return; }
   if(i.id === 'rsvQ'){ rsvQuery = i.value.trim(); clearTimeout(i._t); i._t = setTimeout(()=>{ rRsv(); const q=$('#rsvQ'); q.focus(); q.setSelectionRange(q.value.length,q.value.length); }, 300); return; }
   if(i.dataset.num){
-    const [obj, ...path] = i.dataset.num.split('.'); const v = Math.max(0, Math.floor(Number(i.value)||0));
+    const [obj, ...path] = i.dataset.num.split('.');
+    const v = /\.genx$/.test(i.dataset.num) ? Math.max(0, Math.round((Number(i.value)||0)*10)/10) : Math.max(0, Math.floor(Number(i.value)||0));
     if(obj === 'F') F[path[0]] = v;
     else if(obj === 'S') S[path[0]] = v;
     else if(obj === 'M'){ const [date,k] = path; M[date] = M[date] || {}; M[date][k] = v; }

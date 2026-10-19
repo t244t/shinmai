@@ -14,7 +14,7 @@ const HEAD = {
                '受取予定日', '受取状況', '受取日', '備考', '登録日時', '受付ID'],
   '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時'],
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
-               '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg'],
+               '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '玄米端数kg'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
   // 米袋・無地袋・新米シールの入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
   '袋在庫':   ['日付', '袋', '区分', '数量', '備考', '受付ID', '登録日時'],
@@ -359,7 +359,7 @@ function getAll_() {
     const b2m = detail ? n_(r['無地袋2kg']) : 0;
     const b5 = b5k + b5m, b2 = b2k + b2m;
     return {
-      date: d_(r['精米日']), gen: n_(r['玄米袋数']), b5k, b5m, b2k, b2m, b5, b2,
+      date: d_(r['精米日']), gen: n_(r['玄米袋数']), genx: n_(r['玄米端数kg']), b5k, b5m, b2k, b2m, b5, b2,
       kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
       pay: n_(r['支払額']), status: String(r['状態'] || '予定'), note: String(r['備考']),
     };
@@ -490,6 +490,7 @@ function saveMilling_(p) {
   const cnt = v => Math.max(0, Math.floor(n_(v)));
   [['gen', '玄米袋数'], ['b5k', '米袋5kg'], ['b5m', '無地袋5kg'], ['b2k', '米袋2kg'], ['b2m', '無地袋2kg']]
     .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = cnt(p[k]); });
+  if (p.genx !== undefined) o['玄米端数kg'] = p.genx === '' ? '' : Math.max(0, Math.round(n_(p.genx) * 10) / 10);
   if (p.pay !== undefined) o['支払額'] = p.pay === '' ? '' : n_(p.pay);
   if (p.status !== undefined) o['状態'] = p.status;
   if (p.note !== undefined) o['備考'] = p.note;
@@ -513,8 +514,9 @@ function millingFormulas_(sh, r) {
   set('時期', '=IF(DAY(' + A + ')<=10,"上旬",IF(DAY(' + A + ')<=20,"中旬","下旬"))');
   set('持込日', '=' + A + '-1');
   set('精米量kg', '=' + L('5kg袋数') + r + '*価格マスタ!$B$2+' + L('2kg袋数') + r + '*価格マスタ!$B$3');
-  // 玄米袋数があれば玄米の重さで、なければ袋詰め量で 90kg を判定
-  const base = 'IF(N(' + L('玄米袋数') + r + ')>0,' + L('玄米袋数') + r + '*30,' + L('精米量kg') + r + ')';
+  // 玄米（袋数×30kg＋端数kg）があれば玄米の重さで、なければ袋詰め量で 90kg を判定
+  const gen = 'N(' + L('玄米袋数') + r + ')*30' + (c['玄米端数kg'] ? '+N(' + L('玄米端数kg') + r + ')' : '');
+  const base = 'IF(' + gen + '>0,' + gen + ',' + L('精米量kg') + r + ')';
   set('90kg判定', '=IF(' + base + '=0,"",IF(' + base + '>=設定!$B$4,"OK","不足"))');
 }
 
