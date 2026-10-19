@@ -23,7 +23,7 @@ header h1{font-size:17px;margin:0;flex:1;letter-spacing:.04em}
 .chip.q{background:var(--amber);color:#fff}
 .chip.ok{background:rgba(255,255,255,.18);color:#fff}
 .iconbtn{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:8px;width:34px;height:34px;font-size:17px;cursor:pointer}
-main{padding:12px 16px calc(84px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+main{padding:12px 16px calc(84px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto;overflow-x:clip}
 section.tab{display:none}
 section.tab.on{display:block}
 h2{font-size:15px;margin:18px 2px 8px;color:var(--green)}
@@ -56,10 +56,13 @@ textarea{min-height:60px;resize:vertical}
 .seg{display:flex;flex-wrap:wrap;gap:6px}
 .seg button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;min-height:40px;cursor:pointer;font-weight:600}
 .seg button.on{background:var(--green);border-color:var(--green);color:#fff}
-.stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
-.stepper button{width:44px;height:44px;border:0;background:var(--green2);color:var(--green);font-size:20px;font-weight:700;cursor:pointer}
-.stepper input{width:56px;border:0;text-align:center;font-size:18px;font-weight:700;min-height:44px;padding:0;border-radius:0}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;width:100%;max-width:200px;box-sizing:border-box}
+.stepper button{flex:none;width:42px;height:44px;border:0;background:var(--green2);color:var(--green);font-size:20px;font-weight:700;cursor:pointer}
+.stepper input{flex:1;min-width:0;width:auto;border:0;text-align:center;font-size:18px;font-weight:700;min-height:44px;padding:0;border-radius:0}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.grid2>*,.millgrid>*,.kpis>*,.g3>*,.g4>*{min-width:0}
+input,select,textarea{max-width:100%;box-sizing:border-box}
+input[type=date]{min-width:0;width:100%;display:block}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th{font-size:12px;color:var(--mute);font-weight:600}
@@ -77,7 +80,7 @@ nav button.on{color:var(--green);font-weight:700}
   padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;z-index:20}
 #toast.on{opacity:.95}
 .banner{background:var(--amber2);border:1px solid #f0d9a8;color:#7a5410;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px}
-.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
 .kpi b{display:block;font-size:20px}
 .kpi small{color:var(--mute);font-size:12px}
@@ -90,21 +93,23 @@ nav button.on{color:var(--green);font-weight:700}
 .pc dt{color:var(--mute)}
 .pc dd{margin:0;text-align:right;font-weight:600}
 a{color:var(--blue)}
-.millgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+.millgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 10px}
 .calc{background:var(--rice);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;line-height:1.6}
-.btnrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:10px}
+.btnrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:10px}
+.btnrow .btn{padding-left:6px;padding-right:6px;white-space:nowrap}
 /* 精米カレンダー */
 .calhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.calhd b{font-size:17px}
-.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.calhd b{font-size:17px;white-space:nowrap}
+.calhd .btn{white-space:nowrap;padding-left:10px;padding-right:10px}
+.calgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
 .calw{font-size:11px;text-align:center;color:var(--mute);padding:2px 0}
 .calw.sun{color:var(--red)}.calw.sat{color:var(--blue)}
-.cd{border:1px solid var(--line);background:#fff;border-radius:7px;min-height:62px;padding:3px 2px 4px;display:flex;flex-direction:column;
+.cd{min-width:0;overflow:hidden;border:1px solid var(--line);background:#fff;border-radius:7px;min-height:62px;padding:3px 2px 4px;display:flex;flex-direction:column;
   align-items:stretch;gap:2px;cursor:pointer;text-align:left;font:inherit;color:inherit}
 .cd.blank{border:0;background:none;cursor:default}
 .cd.mid{background:#fcf9f0}
 .cd.today{border:2px solid var(--green)}
-.cd .dn{font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline;padding:0 2px}
+.cd .dn{font-size:12px;font-weight:700;display:flex;flex-wrap:wrap;gap:0 2px;justify-content:space-between;align-items:baseline;padding:0 2px}
 .cd .dn small{font-size:9px;font-weight:600;color:var(--amber)}
 .cd.sun .dn>span{color:var(--red)}.cd.sat .dn>span{color:var(--blue)}
 .cd.tt{background:#f3f8f4}
@@ -123,14 +128,23 @@ a{color:var(--blue)}
 .calgrid.wk .cd{min-height:66px}
 .calgrid.wk .dn>span{font-size:11px}
 .calgrid.wk .dn small{color:inherit;font-size:9px}
+@media (max-width:480px){
+  .ck .em{display:none}                         /* 狭い画面ではカレンダーの絵文字を省いて数字を見せる */
+  .ck{font-size:9.5px;padding:1px 2px;letter-spacing:-.02em}
+  .cd{padding:3px 1px 4px;min-height:56px}
+  .cd .dn{font-size:11px;padding:0 1px}
+  .calgrid{gap:2px}
+  .calhd b{font-size:15px}
+  .pvctl .g3,.pvctl .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 /* 印刷プレビュー */
 #pv{position:fixed;inset:0;z-index:50;background:#e9e6de;display:flex;flex-direction:column}
 .pvbar{display:flex;align-items:center;gap:8px;background:var(--green);color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px}
 .pvbar b{flex:1;font-size:16px}
 .pvbody{flex:1;overflow:auto;padding:12px}
 .pvctl{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 auto 12px;max-width:720px}
-.pvctl .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 10px}
-.pvctl .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 8px}
+.pvctl .g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
+.pvctl .g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 8px}
 .pvctl label.f{margin:6px 0 2px}
 .pvctl input,.pvctl select{min-height:38px;padding:6px 8px}
 .pvwrap{margin:0 auto;overflow:hidden}
@@ -1024,10 +1038,10 @@ function calCell(ds, maps, label){
   if(x){
     const v = millView(x);
     const cls = v.status==='中止' ? 'stop' : v.status==='精米済' ? 'done' : v.short ? 'short' : v.status==='持込済' ? 'brought' : 'plan';
-    chips += `<span class="ck ${cls}">🍚${v.base ? v.base+'kg' : '精米'}</span>`;
+    chips += `<span class="ck ${cls}"><i class="em" style="font-style:normal">🍚</i>${v.base ? v.base+'kg' : '精米'}</span>`;
     if(v.status === '精米済' && v.diff.length) chips += '<span class="ck short">依頼と差</span>';
   }
-  if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring">👜持込</span>';
+  if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring"><i class="em" style="font-style:normal">👜</i>持込</span>';
   if(maps.pick[ds]) chips += `<span class="ck pick">受取${maps.pick[ds]}</span>`;
   const tag = label ? '' : d === 1 ? '上旬' : d === 11 ? '中旬' : d === 21 ? '下旬' : '';
   return `<button class="cd ${d>10&&d<=20?'mid':''} ${wd===0?'sun':wd===6?'sat':''} ${(wd===2||wd===4)&&!x?'tt':''} ${ds===today()?'today':''}" data-cal="${ds}">
