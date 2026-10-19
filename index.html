@@ -81,6 +81,14 @@ nav button.on{color:var(--green);font-weight:700}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
 .kpi b{display:block;font-size:20px}
 .kpi small{color:var(--mute);font-size:12px}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.pc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.pc .sz{font-weight:700;font-size:15px}
+.pc .inc{font-size:26px;font-weight:800;color:var(--green);line-height:1.2}
+.pc .inc small{font-size:12px;font-weight:600;color:var(--mute);margin-left:2px}
+.pc dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:6px 0 0;font-size:13px}
+.pc dt{color:var(--mute)}
+.pc dd{margin:0;text-align:right;font-weight:600}
 a{color:var(--blue)}
 .millgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
 .calc{background:var(--rice);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;line-height:1.6}
@@ -461,7 +469,17 @@ function rHome(){
   const tasks = D.tasks.filter(t => t.status !== '完了' && t.due && t.due <= addDays(td,3)).sort((a,b)=>a.due<b.due?-1:1);
   const st = stockTable();
 
-  let h = '<h2>次の精米</h2>';
+  // 現在の価格（価格マスタ）
+  const ps = prices();
+  let h = `<h2>現在の価格</h2>` + (ps.length ? `<div class="prices">${ps.map(p => `<div class="pc">
+      <div class="sz">新米 ${esc(p.size)}</div>
+      <div class="inc">${yen(p.inc)}<small>税込</small></div>
+      <dl><dt>税別</dt><dd>${yen(p.ex)}</dd>
+        ${p.rsv ? `<dt>予約価格</dt><dd>${yen(p.rsv)}</dd>` : ''}
+        ${p.staff ? `<dt>社割（税込）</dt><dd>${yen(p.staff)}</dd>` : ''}</dl></div>`).join('')}</div>
+    <div class="mute" style="font-size:12px;margin:4px 2px 0">価格の変更は⚙設定の「価格」から</div>`
+    : '<div class="card mute">価格が未設定です（⚙設定）</div>');
+  h += '<h2>次の精米</h2>';
   if(next){
     const v = millView(next);
     h += `<div class="card"><div class="row between"><div><div class="big">${md(v.date)}</div>
