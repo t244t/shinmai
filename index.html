@@ -243,6 +243,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
+const APP_VER = '10/19 スマホ表示修正版';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -1462,7 +1463,8 @@ function rSet(){
       <button class="btn full" id="infoSave" style="margin-top:12px">保存</button></div>`; })() : ''}
   <h2>この端末</h2><div class="card">
     <div class="mute">未送信の記録：${Q.length}件　${Q.length?'<button class="btn sm" id="flushNow">今すぐ送信</button>':''}</div>
-    <div class="mute" style="margin-top:6px">未送信が残っている間は、ブラウザのサイトデータを消さないでください。</div></div>`;
+    <div class="mute" style="margin-top:6px">未送信が残っている間は、ブラウザのサイトデータを消さないでください。</div>
+    <div class="mute" style="margin-top:6px">アプリの版：${APP_VER}</div></div>`;
 }
 
 /* ===== イベント ===== */
