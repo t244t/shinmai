@@ -123,19 +123,28 @@ a{color:var(--blue)}
 .ck.pick{background:var(--blue2);color:var(--blue);font-weight:600}
 .callg{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:11px;color:var(--mute)}
 .callg .ck{display:inline-block}
+.ck .sm{display:none}
 .card.flash{box-shadow:0 0 0 3px var(--amber)}
 .janpv{margin-top:6px}.janpv svg{display:block;max-width:100%}
 .calgrid.wk .cd{min-height:66px}
 .calgrid.wk .dn>span{font-size:11px}
 .calgrid.wk .dn small{color:inherit;font-size:9px}
 @media (max-width:480px){
-  .ck .em{display:none}                         /* 狭い画面ではカレンダーの絵文字を省いて数字を見せる */
-  .ck{font-size:9.5px;padding:1px 2px;letter-spacing:-.02em}
+  .calgrid .ck .lg{display:none}                /* 狭い画面では短い表記（343・持・精）にする */
+  .calgrid .ck .sm{display:inline}
+  .calgrid .ck{font-size:11px;padding:1px 2px;text-align:center;text-overflow:clip;letter-spacing:-.03em}
+  .cd .dn small{font-size:8.5px}
   .cd{padding:3px 1px 4px;min-height:56px}
   .cd .dn{font-size:11px;padding:0 1px}
   .calgrid{gap:2px}
   .calhd b{font-size:15px}
   .pvctl .g3,.pvctl .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stepper button{width:34px;font-size:18px}
+  .stepper input{min-width:40px;font-size:17px}
+}
+@media (max-width:330px){
+  .millgrid{grid-template-columns:minmax(0,1fr)}  /* さらに狭いときは1列にして数字を隠さない */
+  .stepper{max-width:none}
 }
 /* 印刷プレビュー */
 #pv{position:fixed;inset:0;z-index:50;background:#e9e6de;display:flex;flex-direction:column}
@@ -243,7 +252,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/19 スマホ表示修正版';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/19 スマホ表示修正版2';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -1032,6 +1041,8 @@ function calMaps(){
   return { mill, pick };
 }
 /** カレンダーの1日分。label を渡すと日付の代わりに表示（ホームの7日間用） */
+/** カレンダーの印。狭い画面では短い表記（数字や1文字）に切り替える */
+function ck(cls, long, short){ return `<span class="ck ${cls}"><span class="lg">${long}</span><span class="sm">${short}</span></span>`; }
 function calCell(ds, maps, label){
   const [yy, mm, d] = ds.split('-').map(Number), wd = new Date(yy, mm-1, d).getDay();
   const x = maps.mill[ds], next = maps.mill[addDays(ds,1)];
@@ -1039,11 +1050,11 @@ function calCell(ds, maps, label){
   if(x){
     const v = millView(x);
     const cls = v.status==='中止' ? 'stop' : v.status==='精米済' ? 'done' : v.short ? 'short' : v.status==='持込済' ? 'brought' : 'plan';
-    chips += `<span class="ck ${cls}"><i class="em" style="font-style:normal">🍚</i>${v.base ? v.base+'kg' : '精米'}</span>`;
-    if(v.status === '精米済' && v.diff.length) chips += '<span class="ck short">依頼と差</span>';
+    chips += ck(cls, '🍚' + (v.base ? v.base+'kg' : '精米'), v.base ? String(v.base) : '精');
+    if(v.status === '精米済' && v.diff.length) chips += ck('short', '依頼と差', '差');
   }
-  if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring"><i class="em" style="font-style:normal">👜</i>持込</span>';
-  if(maps.pick[ds]) chips += `<span class="ck pick">受取${maps.pick[ds]}</span>`;
+  if(next && next.status !== '中止' && next.status !== '精米済') chips += ck('bring', '👜持込', '持');
+  if(maps.pick[ds]) chips += ck('pick', '受取' + maps.pick[ds], '受' + maps.pick[ds]);
   const tag = label ? '' : d === 1 ? '上旬' : d === 11 ? '中旬' : d === 21 ? '下旬' : '';
   return `<button class="cd ${d>10&&d<=20?'mid':''} ${wd===0?'sun':wd===6?'sat':''} ${(wd===2||wd===4)&&!x?'tt':''} ${ds===today()?'today':''}" data-cal="${ds}">
     <span class="dn"><span>${label || d}</span>${tag?`<small>${tag}</small>`:''}</span>${chips}</button>`;
