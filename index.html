@@ -151,6 +151,7 @@ a{color:var(--blue)}
 .rq td{border:.25mm solid #000;height:12mm;padding:0 2mm;text-align:center;font-size:3.3mm}
 .rq table.gen{border:.6mm solid #000}
 .rq table.gen td{border:0;height:15mm}
+.act{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 .rq table.gen tr.fr td{height:8mm;padding-bottom:2mm}
 .rq td.n{font-size:5mm;font-weight:600;text-align:right}
 .rq td.v{width:9mm;line-height:1.7;font-size:3mm}
@@ -353,6 +354,15 @@ function millView(m){
   const r = { date:m.date, gen:v('gen'), genx:v('genx'), b5k:v('b5k'), b5m:v('b5m'), b2k:v('b2k'), b2m:v('b2m'),
     status: e.status ?? m.status, pay: e.pay ?? (m.pay||''), note: e.note ?? m.note, dirty: Object.keys(e).length>0 };
   r.b5 = r.b5k + r.b5m; r.b2 = r.b2k + r.b2m;
+  // 実績：保存済み・編集中のどちらかがあれば「実績あり」。未入力の欄は依頼の数を表示
+  const ak = ['a5k','a5m','a2k','a2m'], pk = { a5k:'b5k', a5m:'b5m', a2k:'b2k', a2m:'b2m' };
+  r.hasAct = ak.concat('arem').some(k => (e[k] ?? m[k]) != null && (e[k] ?? m[k]) !== '');
+  ak.forEach(k => { const x = e[k] ?? m[k]; r[k] = (x == null || x === '') ? r[pk[k]] : Number(x) || 0; });
+  r.arem = Number(e.arem ?? m.arem ?? 0) || 0;
+  r.diff = ak.map(k => ({ k, name: { a5k:'米袋5kg', a5m:'無地袋5kg', a2k:'米袋2kg', a2m:'無地袋2kg' }[k], d: r[k] - r[pk[k]] }))
+    .filter(x => r.hasAct && x.d !== 0);
+  // 実際に使った数（実績があれば実績、なければ依頼）
+  r.u5 = r.hasAct ? r.a5k + r.a5m : r.b5; r.u2 = r.hasAct ? r.a2k + r.a2m : r.b2;
   r.kg = r.b5*price('5kg').kg + r.b2*price('2kg').kg;            // 袋詰めする量
   r.genKg = Math.round((r.gen * Number(ST('玄米袋kg')) + r.genx) * 10) / 10; // 持ち込む玄米（袋＋端数）
   r.expect = Math.floor(r.genKg * Number(ST('歩留まり')));         // 精米後の見込み
@@ -366,7 +376,13 @@ function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status ==
    新米シールは袋1枚に1枚（5kg・2kg、米袋・無地袋すべて） */
 const BAGS = [['b5k','米袋5kg'],['b5m','無地袋5kg'],['b2k','米袋2kg'],['b2m','無地袋2kg'],['seal','新米シール']];
 const BG = { kind:'入庫', bag:'米袋5kg', date:'', qty:'', note:'', sending:false }; // 入庫・棚卸フォーム
-function savedBags(m){ return m.b5k === undefined ? { b5k:m.b5||0, b5m:0, b2k:m.b2||0, b2m:0 } : m; }
+function savedBags(m){
+  const b = m.b5k === undefined ? { b5k:m.b5||0, b5m:0, b2k:m.b2||0, b2m:0 } : m;
+  const has = ['a5k','a5m','a2k','a2m'].some(k => m[k] != null && m[k] !== '');
+  if(!has) return b;
+  const a = k => m[k] != null && m[k] !== '' ? Number(m[k]) || 0 : Number(b[{ a5k:'b5k', a5m:'b5m', a2k:'b2k', a2m:'b2m' }[k]]) || 0;
+  return { b5k:a('a5k'), b5m:a('a5m'), b2k:a('a2k'), b2m:a('a2m') };   // 実績があれば実績の数
+}
 function bagUse(m, k){
   const b = savedBags(m), n = x => Number(b[x]) || 0;
   return k === 'seal' ? n('b5k') + n('b5m') + n('b2k') + n('b2m') : n(k);
@@ -519,7 +535,7 @@ function rHome(){
 /* --- 予約 --- */
 function stepper(key, val){
   return `<div class="stepper"><button type="button" data-step="${key}" data-d="-1">−</button>
-    <input type="number" inputmode="${/genx$/.test(key)?'decimal':'numeric'}" min="0" step="${/genx$/.test(key)?'0.1':'1'}" data-num="${key}" value="${val}">
+    <input type="number" inputmode="${/(genx|arem)$/.test(key)?'decimal':'numeric'}" min="0" step="${/(genx|arem)$/.test(key)?'0.1':'1'}" data-num="${key}" value="${val}">
     <button type="button" data-step="${key}" data-d="1">＋</button></div>`;
 }
 function rRsv(){
@@ -966,6 +982,17 @@ function rMill(){
       <div class="calc">袋詰め：5kg×${v.b5}・2kg×${v.b2} ＝ <b>${v.kg}kg</b>
         ${v.genKg?`<br>玄米 ${v.gen?`${ST('玄米袋kg')}kg×${v.gen}袋`:''}${v.gen&&v.genx?'＋':''}${v.genx?`端数${v.genx}kg`:''} ＝ ${v.genKg}kg → 精米後 約${v.expect}kg（歩留まり${Math.round(ST('歩留まり')*100)}%）
           <br>${rest>=0?`余り 約${rest}kg（無地袋2kgへ）`:`<span class="warn">袋詰めが見込みより${-rest}kg多い</span>`}`:''}</div>
+      ${v.status === '精米済' ? `<div class="act">
+        <div class="row between"><b>精米の実績</b><span class="mute" style="font-size:12px">依頼と違う所だけ直す</span></div>
+        <div class="millgrid" style="margin-top:4px">
+          ${sp('a5k','米袋 5kg')}${sp('a5m','無地袋 5kg')}
+          ${sp('a2k','米袋 2kg')}${sp('a2m','無地袋 2kg')}
+          ${sp('arem','残った端数（kg）')}<div></div>
+        </div>
+        <div class="calc">実績：5kg×${v.a5k+v.a5m}・2kg×${v.a2k+v.a2m} ＝ <b>${(v.a5k+v.a5m)*price('5kg').kg + (v.a2k+v.a2m)*price('2kg').kg}kg</b>${v.arem?`＋余り${v.arem}kg`:''}
+          <br>${!v.hasAct ? '<span class="warn">まだ保存されていません（依頼の数を表示中）</span>'
+            : v.diff.length ? '依頼との差：' + v.diff.map(x => `${x.name} <b class="${x.d<0?'warn':'okc'}">${x.d>0?'+':''}${x.d}袋</b>`).join('／')
+            : '<span class="okc">依頼どおり</span>'}</div></div>` : ''}
       <div class="grid2">
         <div><label class="f">状態</label><select data-m="${m.date}" data-k="status">
           ${['予定','持込済','精米済','中止'].map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -998,6 +1025,7 @@ function calCell(ds, maps, label){
     const v = millView(x);
     const cls = v.status==='中止' ? 'stop' : v.status==='精米済' ? 'done' : v.short ? 'short' : v.status==='持込済' ? 'brought' : 'plan';
     chips += `<span class="ck ${cls}">🍚${v.base ? v.base+'kg' : '精米'}</span>`;
+    if(v.status === '精米済' && v.diff.length) chips += '<span class="ck short">依頼と差</span>';
   }
   if(next && next.status !== '中止' && next.status !== '精米済') chips += '<span class="ck bring">👜持込</span>';
   if(maps.pick[ds]) chips += `<span class="ck pick">受取${maps.pick[ds]}</span>`;
@@ -1173,7 +1201,7 @@ function lblGeom(){
 function openPrint(mode, date){
   const m = D.milling.find(x => x.date === date); if(!m) return;
   const v = millView(m);
-  Object.assign(PV, { mode, rec: date, date, reqDate: addDays(date,-1), millDate: date, n5: v.b5, n2: v.b2, skip: 1 });
+  Object.assign(PV, { mode, rec: date, date, reqDate: addDays(date,-1), millDate: date, n5: v.u5, n2: v.u2, skip: 1 });
   $('#pvTitle').textContent = mode === 'req' ? '精米加工依頼書' : '精米表示シール';
   $('#pageStyle').textContent = mode === 'req' ? '@page{size:A4 landscape;margin:0}' : '@page{size:A4 portrait;margin:0}';
   $('#pv').hidden = false;
@@ -1539,7 +1567,7 @@ document.addEventListener('input', e => {
   if(i.id === 'rsvQ'){ rsvQuery = i.value.trim(); clearTimeout(i._t); i._t = setTimeout(()=>{ rRsv(); const q=$('#rsvQ'); q.focus(); q.setSelectionRange(q.value.length,q.value.length); }, 300); return; }
   if(i.dataset.num){
     const [obj, ...path] = i.dataset.num.split('.');
-    const v = /\.genx$/.test(i.dataset.num) ? Math.max(0, Math.round((Number(i.value)||0)*10)/10) : Math.max(0, Math.floor(Number(i.value)||0));
+    const v = /\.(genx|arem)$/.test(i.dataset.num) ? Math.max(0, Math.round((Number(i.value)||0)*10)/10) : Math.max(0, Math.floor(Number(i.value)||0));
     if(obj === 'F') F[path[0]] = v;
     else if(obj === 'S') S[path[0]] = v;
     else if(obj === 'M'){ const [date,k] = path; M[date] = M[date] || {}; M[date][k] = v; }
@@ -1577,7 +1605,16 @@ document.addEventListener('change', e => {
     lsJS(LKEY, LP); pvControls(); pvPages(); return;
   }
   if(i.dataset.num){ if(tab==='rsv') rRsv(); else if(tab==='shop') rShop(); else if(tab==='mill') rMill(); return; }
-  if(i.dataset.m && i.tagName === 'SELECT'){ const d = i.dataset.m; M[d] = M[d] || {}; M[d][i.dataset.k] = i.value; enableSave(d); return; }
+  if(i.dataset.m && i.tagName === 'SELECT'){
+    const d = i.dataset.m; M[d] = M[d] || {}; M[d][i.dataset.k] = i.value;
+    if(i.dataset.k === 'status' && i.value === '精米済'){
+      // 実績が未入力なら、依頼の数を実績の初期値にして保存できるようにする
+      const v = millView(D.milling.find(x => x.date === d));
+      if(!v.hasAct) Object.assign(M[d], { a5k:v.b5k, a5m:v.b5m, a2k:v.b2k, a2m:v.b2m });
+      rMill(); const c = document.getElementById('mill-' + d); if(c) c.scrollIntoView({ block:'start' });
+    }
+    enableSave(d); return;
+  }
   if(i.dataset.tid){ saveTask(i.dataset.tid, i.dataset.tk, i.value); return; }
 });
 function enableSave(d){ const b = document.querySelector(`[data-msave="${d}"]`); if(b){ b.disabled = false; b.classList.remove('sub'); } }

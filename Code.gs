@@ -14,7 +14,8 @@ const HEAD = {
                '受取予定日', '受取状況', '受取日', '備考', '登録日時', '受付ID'],
   '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時'],
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
-               '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '玄米端数kg'],
+               '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '玄米端数kg',
+               '実績米袋5kg', '実績無地袋5kg', '実績米袋2kg', '実績無地袋2kg', '実績余りkg'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
   // 米袋・無地袋・新米シールの入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
   '袋在庫':   ['日付', '袋', '区分', '数量', '備考', '受付ID', '登録日時'],
@@ -358,11 +359,14 @@ function getAll_() {
     const b2k = detail ? n_(r['米袋2kg']) : n_(r['2kg袋数']);
     const b2m = detail ? n_(r['無地袋2kg']) : 0;
     const b5 = b5k + b5m, b2 = b2k + b2m;
-    return {
+    // 実績（精米済で入力）。空欄は null ＝ 未入力
+    const a_ = h => (r[h] === '' || r[h] === undefined || r[h] === null) ? null : n_(r[h]);
+    const act = { a5k: a_('実績米袋5kg'), a5m: a_('実績無地袋5kg'), a2k: a_('実績米袋2kg'), a2m: a_('実績無地袋2kg'), arem: a_('実績余りkg') };
+    return Object.assign(act, {
       date: d_(r['精米日']), gen: n_(r['玄米袋数']), genx: n_(r['玄米端数kg']), b5k, b5m, b2k, b2m, b5, b2,
       kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
       pay: n_(r['支払額']), status: String(r['状態'] || '予定'), note: String(r['備考']),
-    };
+    });
   }).filter(m => m.date).sort((a, b) => a.date < b.date ? -1 : 1);
 
   const tasks = rows_(sheet_('タスク')).map(r => ({
@@ -490,6 +494,9 @@ function saveMilling_(p) {
   const cnt = v => Math.max(0, Math.floor(n_(v)));
   [['gen', '玄米袋数'], ['b5k', '米袋5kg'], ['b5m', '無地袋5kg'], ['b2k', '米袋2kg'], ['b2m', '無地袋2kg']]
     .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = cnt(p[k]); });
+  [['a5k', '実績米袋5kg'], ['a5m', '実績無地袋5kg'], ['a2k', '実績米袋2kg'], ['a2m', '実績無地袋2kg']]
+    .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = p[k] === '' ? '' : cnt(p[k]); });
+  if (p.arem !== undefined) o['実績余りkg'] = p.arem === '' ? '' : Math.max(0, Math.round(n_(p.arem) * 10) / 10);
   if (p.genx !== undefined) o['玄米端数kg'] = p.genx === '' ? '' : Math.max(0, Math.round(n_(p.genx) * 10) / 10);
   if (p.pay !== undefined) o['支払額'] = p.pay === '' ? '' : n_(p.pay);
   if (p.status !== undefined) o['状態'] = p.status;
