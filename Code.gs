@@ -15,7 +15,8 @@ const HEAD = {
   '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時'],
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
                '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '玄米端数kg',
-               '実績米袋5kg', '実績無地袋5kg', '実績米袋2kg', '実績無地袋2kg', '実績余りkg'],
+               '実績米袋5kg', '実績無地袋5kg', '実績米袋2kg', '実績無地袋2kg', '実績余りkg',
+               '予備米袋5kg', '予備無地袋5kg', '予備米袋2kg', '予備無地袋2kg', '実際の持込日', '受取予定'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
   // 米袋・無地袋・新米シールの入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
   '袋在庫':   ['日付', '袋', '区分', '数量', '備考', '受付ID', '登録日時'],
@@ -33,6 +34,8 @@ const DEFAULTS = {
     ['販売期間日数', 30, '約1ヶ月で入れ替え'],
     ['販売開始日', '2026-10-23', '目安'],
     ['玄米袋kg', 30, '玄米1袋の重さ'],
+    ['精米単価', 30, '精米（色選含む）1kgあたりの加工料金（円）。精米所の料金表より'],
+    ['袋の予備枚数', 3, '依頼書の袋数に足して渡す予備の袋（種類ごと）'],
     ['歩留まり', 0.895, '玄米→精米の目安（0.895＝10.5%減）'],
     ['名称', '精　　米', '表示シール'],
     ['原料区分', '単一原料米', '表示シール'],
@@ -366,6 +369,8 @@ function getAll_() {
       date: d_(r['精米日']), gen: n_(r['玄米袋数']), genx: n_(r['玄米端数kg']), b5k, b5m, b2k, b2m, b5, b2,
       kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
       pay: n_(r['支払額']), status: String(r['状態'] || '予定'), note: String(r['備考']),
+      s5k: n_(r['予備米袋5kg']), s5m: n_(r['予備無地袋5kg']), s2k: n_(r['予備米袋2kg']), s2m: n_(r['予備無地袋2kg']),
+      bring: d_(r['実際の持込日']), pickup: String(r['受取予定'] || ''),
     });
   }).filter(m => m.date).sort((a, b) => a.date < b.date ? -1 : 1);
 
@@ -497,6 +502,19 @@ function saveMilling_(p) {
   [['a5k', '実績米袋5kg'], ['a5m', '実績無地袋5kg'], ['a2k', '実績米袋2kg'], ['a2m', '実績無地袋2kg']]
     .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = p[k] === '' ? '' : cnt(p[k]); });
   if (p.arem !== undefined) o['実績余りkg'] = p.arem === '' ? '' : Math.max(0, Math.round(n_(p.arem) * 10) / 10);
+  [['s5k', '予備米袋5kg'], ['s5m', '予備無地袋5kg'], ['s2k', '予備米袋2kg'], ['s2m', '予備無地袋2kg']]
+    .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = cnt(p[k]); });
+  if (p.bring !== undefined) o['実際の持込日'] = p.bring ? d_(p.bring) : '';
+  if (p.pickup !== undefined) o['受取予定'] = p.pickup;
+  // 精米日の変更（精米所の都合で日がずれたとき）
+  if (p.newDate) {
+    const nd = d_(p.newDate);
+    if (!nd) throw new Error('新しい精米日が不正です');
+    if (nd !== date) {
+      if (rows_(sh).some(x => d_(x['精米日']) === nd)) throw new Error(nd + ' はすでに精米日があります');
+      sh.getRange(row, cols_(sh)['精米日']).setValue(nd);
+    }
+  }
   if (p.genx !== undefined) o['玄米端数kg'] = p.genx === '' ? '' : Math.max(0, Math.round(n_(p.genx) * 10) / 10);
   if (p.pay !== undefined) o['支払額'] = p.pay === '' ? '' : n_(p.pay);
   if (p.status !== undefined) o['状態'] = p.status;

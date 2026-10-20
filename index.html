@@ -163,6 +163,31 @@ a{color:var(--blue)}
 .page.land{width:297mm;height:210mm}
 .page.port{width:210mm;height:297mm}
 /* 依頼書 */
+.rq2{position:absolute;top:9mm;width:130mm;font-size:3.2mm;line-height:1.35;color:#000}
+.rq2 .hd{display:flex;justify-content:space-between;align-items:center;border-bottom:.7mm solid #000;padding-bottom:1.5mm}
+.rq2 h1{font-size:6mm;margin:0;letter-spacing:1.5mm}
+.rq2 .lb{font-size:3mm;border:.3mm solid #000;padding:.6mm 2mm;border-radius:1mm}
+.rq2 .to{font-size:4mm;margin:2.5mm 0 1.5mm}
+.rq2 .cl{border:.4mm solid #000;padding:1.5mm 2.5mm;margin-bottom:2.5mm}
+.rq2 .cl .nm{font-size:5.4mm;font-weight:700}
+.rq2 .cl .ad{font-size:2.6mm}
+.rq2 table{width:100%;border-collapse:collapse;margin-bottom:2.5mm}
+.rq2 th{text-align:center;vertical-align:middle;color:#000;border:.3mm solid #000;background:#eee;font-size:2.8mm;font-weight:600;padding:.8mm 1mm}
+.rq2 td{vertical-align:middle;border:.3mm solid #000;text-align:center;padding:1.3mm 1mm;font-size:3.6mm}
+.rq2 td b{font-size:5mm}
+.rq2 td small,.rq2 th small{font-size:2.4mm;font-weight:400}
+.rq2 td.n{text-align:right;padding-right:2mm}
+.rq2 td.em{border:.8mm solid #000}
+.rq2 .dts td{font-size:4.6mm;font-weight:700}
+.rq2 .sc{font-size:3.6mm;font-weight:700;margin:1mm 0 1mm}
+.rq2 .bg tr.z td{color:#999}
+.rq2 .bg tr.tt td{border-top:.7mm solid #000;font-weight:700}
+.rq2 .nt{margin:0 0 2.5mm;padding-left:5mm;font-size:3.1mm}
+.rq2 .nt li{margin-bottom:.8mm}
+.rq2 .ft td{height:9mm;font-size:3mm;width:25%}
+.rq2 .ft td:nth-child(odd){background:#eee;width:18%}
+.rq2 .ry{position:absolute;top:-6mm;right:0;font-size:2.4mm;color:#666;display:none}
+.cutline{display:none}
 .rq{position:absolute;top:14mm;width:128mm;font-size:3.2mm}
 .rq h1{font-size:5.4mm;font-weight:500;text-align:center;letter-spacing:3mm;margin:0 0 5mm}
 .rq .dt{text-align:right;margin-bottom:5mm}
@@ -252,7 +277,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/19 歩留まり10.5%減';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/20 依頼書レイアウト・予備袋・精米日変更';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -302,7 +327,7 @@ const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:
 let rsvFilter = '未', rsvQuery = '';
 const S = { store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0, by: lsGet(K.by)||'', note:'' }; // 店舗入力
 const M = {};                      // 精米の編集中データ { date: {gen,b5k,b5m,b2k,b2m,pay,status,note} }
-const DEF_SET = { '玄米袋kg':30, '歩留まり':0.895, '名称':'精　　米', '原料区分':'単一原料米', '品種':'元気つくし', '産地':'福岡県', '産年':'令和8年',
+const DEF_SET = { '玄米袋kg':30, '歩留まり':0.895, '精米単価':30, '袋の予備枚数':3, '名称':'精　　米', '原料区分':'単一原料米', '品種':'元気つくし', '産地':'福岡県', '産年':'令和8年',
   '産地割合':'100%', '品種割合':'100%', '産年割合':'100%', '確認文言1':'JA農産物検査証明による確認米', '確認割合1':'10割100%',
   '確認文言2':'苗の購入・栽培作業記録による確認米', '確認割合2':'10割100%', '販売者電話':'092-324-8050', 'シール単価':1.3, 'JAN5kg':'2186410000000', 'JAN2kg':'2186410100000', 'JAN方式':'価格入り',
   '会社名':'株式会社 農・みのり', '郵便番号':'〒819-1152', '住所':'福岡県糸島市飯原1675番地1', 'TEL':'092-323-8700',
@@ -388,11 +413,18 @@ function millView(m){
     .filter(x => r.hasAct && x.d !== 0);
   // 実際に使った数（実績があれば実績、なければ依頼）
   r.u5 = r.hasAct ? r.a5k + r.a5m : r.b5; r.u2 = r.hasAct ? r.a2k + r.a2m : r.b2;
+  // 予備の袋（依頼書の袋数に足して渡す分）・持込日・受取予定
+  ['s5k','s5m','s2k','s2m'].forEach(k => r[k] = v(k));
+  r.spare = r.s5k + r.s5m + r.s2k + r.s2m;
+  r.bring = (e.bring ?? m.bring) || addDays(m.date, -1);
+  r.bringSet = !!(e.bring ?? m.bring);
+  r.pickup = e.pickup ?? (m.pickup || '');
   r.kg = r.b5*price('5kg').kg + r.b2*price('2kg').kg;            // 袋詰めする量
   r.genKg = Math.round((r.gen * Number(ST('玄米袋kg')) + r.genx) * 10) / 10; // 持ち込む玄米（袋＋端数）
   r.expect = Math.floor(r.genKg * Number(ST('歩留まり')));         // 精米後の見込み
   r.base = r.genKg ? r.genKg : r.kg;                               // 90kg判定の基準
   r.short = r.base > 0 && r.base < minKg();
+  r.fee = Math.round(r.genKg * Number(ST('精米単価') || 0));       // 精米代の目安（玄米kg×単価）
   return r;
 }
 function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status === '未'); }
@@ -410,7 +442,10 @@ function savedBags(m){
 }
 function bagUse(m, k){
   const b = savedBags(m), n = x => Number(b[x]) || 0;
-  return k === 'seal' ? n('b5k') + n('b5m') + n('b2k') + n('b2m') : n(k);
+  if(k === 'seal') return n('b5k') + n('b5m') + n('b2k') + n('b2m');
+  // 持込済の間は予備の袋も精米所にある。精米済になったら予備は返ってきた扱い
+  const sp = m.status === '持込済' ? Number(m['s' + k.slice(1)]) || 0 : 0;
+  return n(k) + sp;
 }
 function bagStock(){
   const logs = (D && D.bags) || [], td = today();
@@ -525,7 +560,7 @@ function rHome(){
   if(next){
     const v = millView(next);
     h += `<div class="card"><div class="row between"><div><div class="big">${md(v.date)}</div>
-      <div class="mute">${period(v.date)}・持ち込み ${md(addDays(v.date,-1))}</div></div>
+      <div class="mute">${period(v.date)}・持ち込み ${md(v.bring)}${v.pickup?`・受取 ${esc(v.pickup)}`:''}</div></div>
       <div style="text-align:right"><div class="big ${v.base? (v.short?'warn':'okc') : ''}">${v.genKg?`玄米${v.genKg}`:v.kg}kg</div>
       <div class="mute">${v.gen?`玄米${v.gen}袋${v.genx?'＋'+v.genx+'kg':''}・`:v.genx?`玄米${v.genx}kg・`:''}5kg×${v.b5}・2kg×${v.b2}</div></div></div>
       ${v.short ? `<div class="warn" style="margin-top:6px">${minKg()}kgまで あと${minKg()-v.base}kg</div>` : ''}
@@ -995,7 +1030,7 @@ function rMill(){
     const sp = (k,l) => `<div><label class="f">${l}</label>${stepper('M.'+m.date+'.'+k, v[k])}</div>`;
     return `<div class="card ${past||v.status==='精米済'||v.status==='中止'?'past':''}" id="mill-${m.date}">
       <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
-        <div class="mute">持ち込み ${md(addDays(m.date,-1))}</div></div>
+        <div class="mute">持ち込み ${md(v.bring)}${v.pickup?`・受取 ${esc(v.pickup)}`:''}</div></div>
         <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
         <div class="mute" style="font-size:11px">${v.genKg?'玄米で判定':'袋詰め量で判定'}</div>
         ${v.short?`<div class="warn" style="font-size:12px">あと${minKg()-v.base}kg</div>`:''}</div></div>
@@ -1018,10 +1053,25 @@ function rMill(){
           <br>${!v.hasAct ? '<span class="warn">まだ保存されていません（依頼の数を表示中）</span>'
             : v.diff.length ? '依頼との差：' + v.diff.map(x => `${x.name} <b class="${x.d<0?'warn':'okc'}">${x.d>0?'+':''}${x.d}袋</b>`).join('／')
             : '<span class="okc">依頼どおり</span>'}</div></div>` : ''}
+      <div class="act">
+        <div class="row between"><b>予備の袋（依頼数に足して渡す）</b>
+          <button class="btn sm ghost" data-spare="${m.date}">予備を＋${Number(ST('袋の予備枚数'))||0}にする</button></div>
+        <div class="millgrid" style="margin-top:4px">
+          ${sp('s5k','米袋 5kg')}${sp('s5m','無地袋 5kg')}
+          ${sp('s2k','米袋 2kg')}${sp('s2m','無地袋 2kg')}
+        </div>
+        <div class="calc">渡す袋：${[['米袋5kg',v.b5k,v.s5k],['無地袋5kg',v.b5m,v.s5m],['米袋2kg',v.b2k,v.s2k],['無地袋2kg',v.b2m,v.s2m]]
+          .filter(x => x[1] + x[2] > 0).map(x => `${x[0]} <b>${x[1]+x[2]}枚</b>${x[2]?`（予備${x[2]}）`:''}`).join('／') || 'なし'}</div>
+      </div>
+      <div class="grid2">
+        <div><label class="f">持込日</label><input type="date" data-m="${m.date}" data-k="bring" value="${esc(v.bring)}"></div>
+        <div><label class="f">受取予定</label><input type="text" data-m="${m.date}" data-k="pickup" value="${esc(v.pickup)}" placeholder="例：午後"></div>
+      </div>
+      ${v.fee ? `<div class="mute" style="margin-top:6px">精米代の目安：玄米${v.genKg}kg × ${Number(ST('精米単価'))}円 ＝ <b>${yen(v.fee)}</b>（袋の料金は別）</div>` : ''}
       <div class="grid2">
         <div><label class="f">状態</label><select data-m="${m.date}" data-k="status">
           ${['予定','持込済','精米済','中止'].map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label class="f">支払額（円）</label><input type="number" inputmode="numeric" data-m="${m.date}" data-k="pay" value="${esc(v.pay)}"></div>
+        <div><label class="f">支払額（円）</label><input type="number" inputmode="numeric" data-m="${m.date}" data-k="pay" value="${esc(v.pay)}" placeholder="${v.fee||''}"></div>
       </div>
       <label class="f">備考</label><input type="text" data-m="${m.date}" data-k="note" value="${esc(v.note)}">
       <div class="btnrow">
@@ -1029,6 +1079,7 @@ function rMill(){
         <button class="btn sub" data-preq="${m.date}">🖨 依頼書</button>
         <button class="btn sub" data-plbl="${m.date}">🏷 シール</button>
       </div>
+      <button class="btn sm ghost" data-mmove="${m.date}" style="margin-top:8px">📅 精米日を変更</button>
     </div>`;}).join('')}</div>
   <h2>精米日を追加</h2>
   <div class="card row"><input type="date" id="millNew"><button class="btn" id="millAdd">追加</button></div>`;
@@ -1037,16 +1088,17 @@ function rMill(){
 /* 精米カレンダー（月表示） */
 const CAL = (() => { const d = new Date(); return { y:d.getFullYear(), m:d.getMonth() }; })();
 function calMaps(){
-  const mill = {}; D.milling.forEach(x => mill[x.date] = x);
+  const mill = {}, bring = {};
+  D.milling.forEach(x => { mill[x.date] = x; bring[x.bring || addDays(x.date, -1)] = x; });
   const pick = {}; rsvOpen().forEach(r => { if(r.pickup) pick[r.pickup] = (pick[r.pickup]||0) + 1; });
-  return { mill, pick };
+  return { mill, bring, pick };
 }
 /** カレンダーの1日分。label を渡すと日付の代わりに表示（ホームの7日間用） */
 /** カレンダーの印。狭い画面では短い表記（数字や1文字）に切り替える */
 function ck(cls, long, short){ return `<span class="ck ${cls}"><span class="lg">${long}</span><span class="sm">${short}</span></span>`; }
 function calCell(ds, maps, label){
   const [yy, mm, d] = ds.split('-').map(Number), wd = new Date(yy, mm-1, d).getDay();
-  const x = maps.mill[ds], next = maps.mill[addDays(ds,1)];
+  const x = maps.mill[ds], next = maps.bring[ds];
   let chips = '';
   if(x){
     const v = millView(x);
@@ -1101,6 +1153,24 @@ function calTap(ds){
   api('saveMilling', { date:ds, status:'予定' }).then(() => { toast(md(ds) + ' を追加しました'); load(); }).catch(err => toast(err.message));
 }
 
+/** 精米日を別の日に移す（精米所の都合でずれたとき）。入力中の内容も一緒に保存 */
+async function moveMill(date){
+  const m = D.milling.find(x => x.date === date); if(!m) return;
+  const v = millView(m);
+  const nd = (prompt(`${md(date)} の精米日を何日に変更しますか？（例：${addDays(date, 5)}）`, addDays(date, 5)) || '').trim().replace(/\//g, '-');
+  if(!nd) return;
+  if(!/^\d{4}-\d{1,2}-\d{1,2}$/.test(nd)) return toast('日付は 2026-10-27 の形で入れてください');
+  const nds = nd.split('-').map((x, i) => i ? pad(Number(x)) : x).join('-');
+  if(D.milling.some(x => x.date === nds)) return toast(md(nds) + ' はすでに精米日があります');
+  // 持ち込み済みなら、持込日は今の日のまま残す（精米日の前日に動かさない）
+  const keep = (v.status === '持込済' || v.bringSet) ? { bring: v.bring } : {};
+  try{
+    await api('saveMilling', Object.assign({ date }, M[date] || {}, keep, { newDate: nds }));
+    delete M[date]; toast(`${md(date)} → ${md(nds)} に変更しました`);
+    const [y, mo] = nds.split('-').map(Number); CAL.y = y; CAL.m = mo - 1;
+    await load();
+  }catch(err){ toast(err.message + '（GASの更新が必要かもしれません）'); }
+}
 async function saveMill(date){
   const e = M[date]; if(!e) return;
   try{
@@ -1228,7 +1298,7 @@ function lblGeom(){
 function openPrint(mode, date){
   const m = D.milling.find(x => x.date === date); if(!m) return;
   const v = millView(m);
-  Object.assign(PV, { mode, rec: date, date, reqDate: addDays(date,-1), millDate: date, n5: v.u5, n2: v.u2, skip: 1 });
+  Object.assign(PV, { mode, rec: date, date, reqDate: v.bring, pickup: v.pickup ? `${md(date)} ${v.pickup}` : '', millDate: date, n5: v.u5, n2: v.u2, skip: 1 });
   $('#pvTitle').textContent = mode === 'req' ? '精米加工依頼書' : '精米表示シール';
   $('#pageStyle').textContent = mode === 'req' ? '@page{size:A4 landscape;margin:0}' : '@page{size:A4 portrait;margin:0}';
   $('#pv').hidden = false;
@@ -1240,9 +1310,10 @@ function closePrint(){ $('#pv').hidden = true; document.body.style.overflow = ''
 function pvControls(){
   const c = $('#pvCtl');
   if(PV.mode === 'req'){
-    c.innerHTML = `<div class="grid2"><div><label class="f">依頼日（令和 年 月 日）</label><input type="date" data-pv="reqDate" value="${PV.reqDate}"></div>
+    c.innerHTML = `<div class="grid2"><div><label class="f">持込日（依頼日）</label><input type="date" data-pv="reqDate" value="${PV.reqDate}"></div>
       <div><label class="f">精米日</label><input type="date" data-pv="date" value="${PV.date}"></div></div>
-      <div class="mute" style="margin-top:6px">袋数は精米タブの入力から入ります。A4横・2枚分（1枚は控え）。</div>`;
+      <label class="f">お渡し（受取予定）</label><input type="text" data-pv="pickup" value="${esc(PV.pickup||'')}" placeholder="空欄＝精米日">
+      <div class="mute" style="margin-top:6px">袋数・予備・持込日は精米タブの入力から入ります。A4横・2枚分（左＝精米所様用、右＝控え）。</div>`;
     return;
   }
   const g = lblGeom(), per = g.cols*g.rows, custom = LP.preset === 'custom';
@@ -1272,25 +1343,36 @@ function pvControls(){
     <div class="mute" id="pvInfo" style="margin-top:6px"></div>`;
 }
 
-function reqCopy(v, left){
-  const z = n => n ? n : '';
-  const kgOf = (n, size) => n ? n*price(size).kg : '';
-  const [, mm, dd] = PV.date.split('-').map(Number);
-  const [ry, rm, rd] = (PV.reqDate||'').split('-').map(Number);
-  const row = (bag, size, n) => `<tr><td>${bag}</td><td>${size==='5kg'?'5Kg袋':'2Kg袋'}</td><td class="n">${z(n)}</td><td>袋</td><td class="n">${kgOf(n,size)}</td><td>Kg</td></tr>`;
-  return `<div class="rq" style="left:${left}mm">
-    <h1>精米加工依頼書</h1>
-    <div class="dt">令和 ${ry? ry-2018 : '　'} 年 ${rm||'　'} 月 ${rd||'　'} 日</div>
+/** 精米加工依頼書（農・みのり用）。精米所が読み間違えないように、日付・玄米・袋詰め・渡した袋を区切って大きく出す */
+function reqCopy(v, left, label){
+  const dz = n => n ? n : '—';
+  const kg5 = price('5kg').kg, kg2 = price('2kg').kg;
+  const dj = s => { if(!s) return '　月　日'; const [, m, d] = s.split('-').map(Number); return `${m}月${d}日<small>(${WD[new Date(s.replace(/-/g,'/')).getDay()]})</small>`; };
+  const [ry] = (PV.reqDate || PV.date).split('-').map(Number);
+  const rows = [['米袋', '5kg', v.b5k, v.s5k, kg5], ['無地袋', '5kg', v.b5m, v.s5m, kg5], ['米袋', '2kg', v.b2k, v.s2k, kg2], ['無地袋', '2kg', v.b2m, v.s2m, kg2]];
+  const tb = rows.reduce((a, r) => a + r[2], 0), tk = rows.reduce((a, r) => a + r[2]*r[4], 0), tg = rows.reduce((a, r) => a + r[2] + r[3], 0), ts = rows.reduce((a, r) => a + r[3], 0);
+  return `<div class="rq2" style="left:${left}mm">
+    <div class="hd"><h1>精米加工依頼書</h1><span class="lb">${esc(label)}</span></div>
     <div class="to">${esc(ST('依頼先'))}</div>
-    <div class="mid"><div>精米日　<b style="font-size:4.2mm">${mm} 月 ${dd} 日</b> 分</div>
-      <div class="from"><b>${esc(ST('会社名'))}</b><br>${esc(ST('郵便番号'))}<br>${esc(ST('住所'))}<br>
-        TEL${esc(ST('TEL'))}　FAX${esc(ST('FAX'))}<br>【 登録番号 ${esc(ST('登録番号'))} 】</div></div>
-    <table class="gen"><tr><td style="width:18%">玄　米</td><td>${esc(ST('玄米袋kg'))}Kg</td><td class="n">${z(v.gen)}</td><td>袋</td>
-      <td>合計</td><td class="n">${v.genKg ? v.genKg : ''}</td><td>Kg</td></tr>
-      ${v.genx ? `<tr class="fr"><td></td><td>端　数</td><td class="n">${v.genx}</td><td>Kg</td><td></td><td></td><td></td></tr>` : ''}</table>
-    <table><tr><td rowspan="4" class="v">精<br>米<br>加<br>工<br>後</td>${row('米袋','5kg',v.b5k).slice(4)}
-      ${row('無地袋','5kg',v.b5m)}${row('米袋','2kg',v.b2k)}${row('無地袋','2kg',v.b2m)}</table>
-    <div class="note">${esc(ST('依頼書注記'))}</div></div>`;
+    <div class="cl"><div class="nm">${esc(ST('会社名'))}</div>
+      <div class="ad">${esc(ST('郵便番号'))} ${esc(ST('住所'))}<br>TEL ${esc(ST('TEL'))}　FAX ${esc(ST('FAX'))}　登録番号 ${esc(ST('登録番号'))}</div></div>
+    <table class="dts"><tr><th>持込日</th><th>精米日</th><th>お渡し</th></tr>
+      <tr><td>${dj(PV.reqDate)}</td><td class="em">${dj(PV.date)}</td><td>${PV.pickup ? esc(PV.pickup) : dj(PV.date)}</td></tr></table>
+    <div class="sc">① お預けする玄米</div>
+    <table class="gn"><tr><th>${esc(ST('玄米袋kg'))}kg袋</th><th>端数</th><th>合計</th></tr>
+      <tr><td><b>${dz(v.gen)}</b> 袋</td><td><b>${dz(v.genx)}</b> kg</td><td class="em"><b>${v.genKg || '—'}</b> kg</td></tr></table>
+    <div class="sc">② 袋詰めのお願い</div>
+    <table class="bg"><tr><th>袋</th><th>容量</th><th>袋詰め数</th><th>重さ</th><th>お渡しした袋<br><small>（予備を含む）</small></th></tr>
+      ${rows.map(r => `<tr class="${r[2]||r[3]?'':'z'}"><td>${r[0]}</td><td>${r[1]}</td><td class="n"><b>${dz(r[2])}</b> 袋</td><td class="n">${r[2] ? r[2]*r[4] : '—'} kg</td>
+        <td class="n"><b>${r[2]+r[3] || '—'}</b> 枚${r[3] ? `<small>（予備${r[3]}）</small>` : ''}</td></tr>`).join('')}
+      <tr class="tt"><td colspan="2">合計</td><td class="n"><b>${tb}</b> 袋</td><td class="n">${tk} kg</td><td class="n"><b>${tg}</b> 枚</td></tr></table>
+    <ul class="nt">
+      ${ST('依頼書注記') ? `<li>${esc(String(ST('依頼書注記')).replace(/^※\s*/, ''))}</li>` : ''}
+      ${ts ? `<li>袋は予備を含めて ${tg} 枚お渡ししています。<b>使わなかった袋はご返却ください。</b></li>` : ''}
+    </ul>
+    <table class="ft"><tr><td>受付</td><td></td><td>精米後の重さ</td><td class="n">kg</td></tr></table>
+    <div class="ry">令和${ry ? ry - 2018 : '　'}年</div>
+  </div>`;
 }
 
 function labelHtml(size){
@@ -1318,7 +1400,7 @@ function pvPages(){
   let html = '', land = PV.mode === 'req';
   if(PV.mode === 'req'){
     const v = millView(D.milling.find(x => x.date === PV.rec) || { date:PV.rec });
-    html = `<div class="page land">${reqCopy(v, 10)}${reqCopy(v, 159)}</div>`;
+    html = `<div class="page land">${reqCopy(v, 10, '精米所様 用')}${reqCopy(v, 157, '農・みのり 控え')}</div><div class="cutline"></div>`;
   } else {
     const g = lblGeom(), cols = Math.max(1, Math.floor(+g.cols||1)), rows = Math.max(1, Math.floor(+g.rows||1)), per = cols*rows;
     const items = [];
@@ -1470,7 +1552,8 @@ function rSet(){
       <div class="mute" style="margin-top:6px">確認文言や割合は空欄にするとシールに出ません。</div></div>
     <h2>精米加工依頼書</h2><div class="card">
       ${[['依頼先','依頼先（精米所）'],['郵便番号','郵便番号'],['TEL','TEL'],['FAX','FAX'],['登録番号','登録番号'],['依頼書注記','依頼書の注記'],
-         ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.895＝10.5%減）']].map(fld).join('')}
+         ['玄米袋kg','玄米1袋（kg）'],['歩留まり','歩留まり（0.895＝10.5%減）'],
+         ['精米単価','精米代（1kgあたり・円）'],['袋の予備枚数','予備の袋（種類ごとの枚数）']].map(fld).join('')}
       <div class="mute" style="margin-top:6px">会社名・住所は表示シールと共通です。</div>
       <button class="btn full" id="infoSave" style="margin-top:12px">保存</button></div>`; })() : ''}
   <h2>この端末</h2><div class="card">
@@ -1512,6 +1595,13 @@ document.addEventListener('click', e => {
   if(b.id === 'csvClear'){ Object.assign(CSV, { file:'', rows:[] }); csvRefresh(); return; }
   if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
   if(b.dataset.msave){ saveMill(b.dataset.msave); return; }
+  if(b.dataset.spare){
+    // 依頼の袋がある種類だけ、予備を設定の枚数にする
+    const d = b.dataset.spare, v = millView(D.milling.find(x => x.date === d)), n = Number(ST('袋の予備枚数')) || 0;
+    M[d] = Object.assign(M[d] || {}, { s5k: v.b5k ? n : 0, s5m: v.b5m ? n : 0, s2k: v.b2k ? n : 0, s2m: v.b2m ? n : 0 });
+    rMill(); return;
+  }
+  if(b.dataset.mmove){ moveMill(b.dataset.mmove); return; }
   if(b.dataset.preq){ openPrint('req', b.dataset.preq); return; }
   if(b.dataset.calnav){ CAL.m += Number(b.dataset.calnav); if(CAL.m < 0){ CAL.m = 11; CAL.y--; } if(CAL.m > 11){ CAL.m = 0; CAL.y++; }
     const c = $('#millCal'); if(c) c.innerHTML = calHtml(); return; }
@@ -1522,7 +1612,7 @@ document.addEventListener('click', e => {
   if(b.id === 'infoSave'){
     const items = [...document.querySelectorAll('[data-set]')].map(i => {
       const k = i.dataset.set, v = i.value.trim();
-      return [k, (k==='玄米袋kg'||k==='歩留まり'||k==='シール単価') && v !== '' && !isNaN(v) ? Number(v) : v];
+      return [k, (k==='玄米袋kg'||k==='歩留まり'||k==='シール単価'||k==='精米単価'||k==='袋の予備枚数') && v !== '' && !isNaN(v) ? Number(v) : v];
     });
     api('saveSettings', { items: JSON.stringify(items) }).then(()=>{ toast('保存しました'); load(); })
       .catch(err=>toast(err.message + '（GASの更新が必要かもしれません）'));
