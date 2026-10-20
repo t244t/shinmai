@@ -436,7 +436,7 @@ function addShopLogs_(items) {
   items.forEach(it => {
     done.push(it.clientId);
     if (it.clientId && seen[it.clientId]) return;
-    if (['配布', '販売', '返品'].indexOf(it.kind) < 0) return;
+    if (['配布', '販売', '返品', '移動出', '移動入'].indexOf(it.kind) < 0) return;
     arrs.push(toArr_(sh, {
       '日付': it.date || todayStr_(), '店舗': it.store, '規格': it.size, '区分': it.kind,
       '数量': Math.floor(n_(it.qty)), '入力者': it.by || '', '備考': it.note || '',
