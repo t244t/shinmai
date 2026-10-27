@@ -121,6 +121,7 @@ a{color:var(--blue)}
 .ck.short{background:var(--red2);color:var(--red);border:1px solid #f3b8b1}
 .ck.bring{background:none;color:var(--amber);font-weight:600;padding:0 3px}
 .ck.pick{background:var(--blue2);color:var(--blue);font-weight:600}
+.ck.insp{background:#efe7f7;color:#6b3fa0;font-weight:600}
 .callg{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:11px;color:var(--mute)}
 .callg .ck{display:inline-block}
 .ck .sm{display:none}
@@ -277,7 +278,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/20 店舗間の移動';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/27 玄米（もみすり）と検査';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -422,6 +423,8 @@ function millView(m){
   r.bring = (e.bring ?? m.bring) || addDays(m.date, -1);
   r.bringSet = !!(e.bring ?? m.bring);
   r.pickup = e.pickup ?? (m.pickup || '');
+  r.lot = e.lot ?? (m.lot || '');
+  r.grade = r.lot ? ((hulls().find(h => h.id === r.lot) || {}).grade || '') : '';
   r.kg = r.b5*price('5kg').kg + r.b2*price('2kg').kg;            // 袋詰めする量
   r.genKg = Math.round((r.gen * Number(ST('玄米袋kg')) + r.genx) * 10) / 10; // 持ち込む玄米（袋＋端数）
   r.expect = Math.floor(r.genKg * Number(ST('歩留まり')));         // 精米後の見込み
@@ -431,6 +434,80 @@ function millView(m){
   return r;
 }
 function rsvOpen(){ return ((D && D.reservations) || []).filter(r => r.status === '未'); }
+
+/* ===== 玄米（もみすり）と等級検査 ===== */
+const GRADES = ['未検査','一等','二等','三等','規格外'];
+const H = { date:'', bags:0, frac:0, waste:0, note:'', open:false };   // 新しいもみすりの入力
+const hulls = () => (D && D.hulls) || [];
+const hullKg = h => Math.round(((Number(h.bags)||0) * Number(ST('玄米袋kg')) + (Number(h.frac)||0)) * 10) / 10;
+/** 次の検査日（毎週 月・金）。from の日を含めて探す */
+function nextInspect(from){
+  let d = from || today();
+  for(let i = 0; i < 7; i++){ const w = new Date(d.replace(/-/g,'/')).getDay(); if(w === 1 || w === 5) return d; d = addDays(d, 1); }
+  return d;
+}
+/** 玄米の使った量：精米の回のうち持込済・精米済の玄米kg（ロット別と合計） */
+function hullUse(){
+  const by = {}; let all = 0;
+  ((D && D.milling) || []).filter(m => m.status === '持込済' || m.status === '精米済').forEach(m => {
+    const v = millView(m), kg = v.genKg || 0; all += kg; if(m.lot) by[m.lot] = (by[m.lot] || 0) + kg;
+  });
+  return { by, all };
+}
+function gradeBadge(g){ return `<span class="badge ${g==='一等'?'g':g==='二等'?'b':g==='未検査'?'a':'r'}">${esc(g||'未検査')}</span>`; }
+function hullCardHtml(){
+  const hs = hulls().slice().sort((a, b) => a.date < b.date ? 1 : -1), use = hullUse();
+  const tot = hs.reduce((a, h) => a + hullKg(h), 0), waste = hs.reduce((a, h) => a + (Number(h.waste)||0), 0);
+  const rnd = x => Math.round(x * 10) / 10;
+  const rate = (g, w) => g + w > 0 ? (w / (g + w) * 100).toFixed(1) + '%' : '-';
+  const ni = nextInspect(today());
+  return `<h2>玄米（もみすり）と検査</h2><div class="card">
+    ${hs.length ? `<div class="kpis"><div class="kpi"><b>${rnd(tot)}</b><small>玄米 kg</small></div>
+      <div class="kpi"><b>${rnd(tot - use.all)}</b><small>玄米の残り kg</small></div>
+      <div class="kpi"><b>${rate(tot, waste)}</b><small>くず米の割合</small></div></div>
+      <div class="mute" style="font-size:12px;margin:6px 0">残り＝玄米の合計−精米に持ち込んだ玄米（持込済・精米済）。くず米の割合＝くず÷（玄米＋くず）。検査は毎週 月・金（次は ${md(ni)}）。</div>
+      <div class="list">${hs.map(h => { const kg = hullKg(h), left = rnd(kg - (use.by[h.id] || 0));
+        return `<div class="act">
+        <div class="row between"><div><b>${esc(h.id)}</b> もみすり ${md(h.date)} ${gradeBadge(h.grade)}</div>
+          <button class="btn sm ghost" data-hdel="${esc(h.id)}">✕</button></div>
+        <div class="calc">玄米 ${h.bags ? `${ST('玄米袋kg')}kg×${h.bags}袋` : ''}${h.bags && h.frac ? '＋' : ''}${h.frac ? `端数${h.frac}kg` : ''} ＝ <b>${kg}kg</b>
+          ・くず米 ${h.waste || 0}kg（${rate(kg, Number(h.waste)||0)}）<br>この玄米で精米した量 ${rnd(use.by[h.id] || 0)}kg・残り約 <b>${left}kg</b></div>
+        <div class="grid2">
+          <div><label class="f">検査日</label><input type="date" data-hid="${esc(h.id)}" data-hk="inspect" value="${esc(h.inspect)}"></div>
+          <div><label class="f">等級</label><select data-hid="${esc(h.id)}" data-hk="grade">${GRADES.map(g => `<option ${h.grade===g?'selected':''}>${g}</option>`).join('')}</select></div>
+          <div><label class="f">くず米（kg）</label><input type="number" inputmode="decimal" step="0.1" min="0" data-hid="${esc(h.id)}" data-hk="waste" value="${esc(h.waste)}"></div>
+          <div><label class="f">備考</label><input type="text" data-hid="${esc(h.id)}" data-hk="note" value="${esc(h.note)}" placeholder="田んぼなど"></div>
+        </div>
+        ${h.grade === '未検査' && h.inspect ? `<div class="mute" style="font-size:12px;margin-top:4px">検査予定 ${md(h.inspect)}。結果が出たら等級を選んでください（選ぶとすぐ保存）。</div>` : ''}
+      </div>`; }).join('')}</div>`
+      : '<div class="mute">玄米にした量（もみすり）を記録すると、玄米の残りとくず米の割合が分かります。</div>'}
+    ${H.open ? `<div class="act">
+      <b>もみすりを記録</b>
+      <div class="grid2" style="margin-top:6px"><div><label class="f">もみすり日</label><input type="date" data-h="date" value="${esc(H.date || today())}"></div>
+        <div><label class="f">備考</label><input type="text" data-h="note" value="${esc(H.note)}" placeholder="田んぼなど"></div></div>
+      <div class="millgrid" style="margin-top:4px">
+        <div><label class="f">玄米（${ST('玄米袋kg')}kg袋）</label>${stepper('H.bags', H.bags)}</div>
+        <div><label class="f">玄米の端数（kg）</label>${stepper('H.frac', H.frac)}</div>
+        <div><label class="f">くず米（kg）</label>${stepper('H.waste', H.waste)}</div><div></div>
+      </div>
+      <div class="calc">玄米 ${Math.round((H.bags*Number(ST('玄米袋kg')) + Number(H.frac))*10)/10}kg・くず米 ${H.waste}kg（${rate(H.bags*Number(ST('玄米袋kg')) + Number(H.frac), Number(H.waste))}）・検査は ${md(nextInspect(H.date || today()))} の予定で記録します</div>
+      <div class="btnrow" style="grid-template-columns:1fr 1fr"><button class="btn" id="hullAdd">記録する</button><button class="btn sub" id="hullCancel">やめる</button></div>
+    </div>` : '<button class="btn sub full" id="hullOpen" style="margin-top:8px">＋ もみすりを記録</button>'}
+  </div>`;
+}
+async function addHull(){
+  const kg = H.bags * Number(ST('玄米袋kg')) + Number(H.frac);
+  if(!kg) return toast('玄米の量を入れてください');
+  const date = H.date || today();
+  try{
+    const r = await api('saveHulling', { date, bags:H.bags, frac:H.frac, waste:H.waste, note:H.note, inspect: nextInspect(date) });
+    toast(`${r.id} を記録しました`); Object.assign(H, { date:'', bags:0, frac:0, waste:0, note:'', open:false }); await load();
+  }catch(err){ toast(err.message + '（GASの更新が必要かもしれません）'); }
+}
+async function saveHull(id, k, v){
+  try{ await api('saveHulling', { id, [k]: v }); toast(k === 'grade' ? `${id}：${v}にしました` : '保存しました'); await load(); }
+  catch(err){ toast(err.message); }
+}
 
 /* 米袋・無地袋・新米シールの在庫：最後の棚卸 ＋ その後の入庫 − 持ち込んだ袋（持込済・精米済）
    新米シールは袋1枚に1枚（5kg・2kg、米袋・無地袋すべて） */
@@ -598,7 +675,7 @@ function rHome(){
 /* --- 予約 --- */
 function stepper(key, val){
   return `<div class="stepper"><button type="button" data-step="${key}" data-d="-1">−</button>
-    <input type="number" inputmode="${/(genx|arem)$/.test(key)?'decimal':'numeric'}" min="0" step="${/(genx|arem)$/.test(key)?'0.1':'1'}" data-num="${key}" value="${val}">
+    <input type="number" inputmode="${/(genx|arem|frac|waste)$/.test(key)?'decimal':'numeric'}" min="0" step="${/(genx|arem|frac|waste)$/.test(key)?'0.1':'1'}" data-num="${key}" value="${val}">
     <button type="button" data-step="${key}" data-d="1">＋</button></div>`;
 }
 function rRsv(){
@@ -1044,6 +1121,7 @@ function rMill(){
   el.innerHTML = `<div class="card mute">毎週火・木に精米（${esc(ST('持込時間'))}に前日持ち込み）。${minKg()}kg以上から・支払いは現金。<br>
     参考：未受取の予約 5kg×${o5}・2kg×${o2}／店舗の残り 5kg×${r5}・2kg×${r2}</div>
   <div class="card" id="millCal">${calHtml()}</div>
+  ${hullCardHtml()}
   ${bagCardHtml()}
   <h2>精米日ごとの袋数</h2>
   <div class="list">${D.milling.map(m => {
@@ -1053,7 +1131,7 @@ function rMill(){
     const sp = (k,l) => `<div><label class="f">${l}</label>${stepper('M.'+m.date+'.'+k, v[k])}</div>`;
     return `<div class="card ${past||v.status==='精米済'||v.status==='中止'?'past':''}" id="mill-${m.date}">
       <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
-        <div class="mute">持ち込み ${md(v.bring)}${v.pickup?`・受取 ${esc(v.pickup)}`:''}</div></div>
+        <div class="mute">持ち込み ${md(v.bring)}${v.pickup?`・受取 ${esc(v.pickup)}`:''}${v.lot?`・玄米 ${esc(v.lot)} ${gradeBadge(v.grade)}`:''}</div></div>
         <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
         <div class="mute" style="font-size:11px">${v.genKg?'玄米で判定':'袋詰め量で判定'}</div>
         ${v.short?`<div class="warn" style="font-size:12px">あと${minKg()-v.base}kg</div>`:''}</div></div>
@@ -1086,6 +1164,9 @@ function rMill(){
         <div class="calc">渡す袋：${[['米袋5kg',v.b5k,v.s5k],['無地袋5kg',v.b5m,v.s5m],['米袋2kg',v.b2k,v.s2k],['無地袋2kg',v.b2m,v.s2m]]
           .filter(x => x[1] + x[2] > 0).map(x => `${x[0]} <b>${x[1]+x[2]}枚</b>${x[2]?`（予備${x[2]}）`:''}`).join('／') || 'なし'}</div>
       </div>
+      ${hulls().length ? `<label class="f">使う玄米</label><select data-m="${m.date}" data-k="lot">
+        <option value="">（選ばない）</option>
+        ${hulls().map(h => `<option value="${esc(h.id)}" ${v.lot===h.id?'selected':''}>${esc(h.id)}・${md(h.date)}・${esc(h.grade)}・${hullKg(h)}kg</option>`).join('')}</select>` : ''}
       <div class="grid2">
         <div><label class="f">持込日</label><input type="date" data-m="${m.date}" data-k="bring" value="${esc(v.bring)}"></div>
         <div><label class="f">受取予定</label><input type="text" data-m="${m.date}" data-k="pickup" value="${esc(v.pickup)}" placeholder="例：午後"></div>
@@ -1114,7 +1195,8 @@ function calMaps(){
   const mill = {}, bring = {};
   D.milling.forEach(x => { mill[x.date] = x; bring[x.bring || addDays(x.date, -1)] = x; });
   const pick = {}; rsvOpen().forEach(r => { if(r.pickup) pick[r.pickup] = (pick[r.pickup]||0) + 1; });
-  return { mill, bring, pick };
+  const insp = {}; hulls().forEach(h => { if(h.inspect && h.grade === '未検査') insp[h.inspect] = (insp[h.inspect]||0) + 1; });
+  return { mill, bring, pick, insp };
 }
 /** カレンダーの1日分。label を渡すと日付の代わりに表示（ホームの7日間用） */
 /** カレンダーの印。狭い画面では短い表記（数字や1文字）に切り替える */
@@ -1131,6 +1213,7 @@ function calCell(ds, maps, label){
   }
   if(next && next.status !== '中止' && next.status !== '精米済') chips += ck('bring', '👜持込', '持');
   if(maps.pick[ds]) chips += ck('pick', '受取' + maps.pick[ds], '受' + maps.pick[ds]);
+  if(maps.insp && maps.insp[ds]) chips += ck('insp', '🔍検査', '検');
   const tag = label ? '' : d === 1 ? '上旬' : d === 11 ? '中旬' : d === 21 ? '下旬' : '';
   return `<button class="cd ${d>10&&d<=20?'mid':''} ${wd===0?'sun':wd===6?'sat':''} ${(wd===2||wd===4)&&!x?'tt':''} ${ds===today()?'today':''}" data-cal="${ds}">
     <span class="dn"><span>${label || d}</span>${tag?`<small>${tag}</small>`:''}</span>${chips}</button>`;
@@ -1156,7 +1239,7 @@ function calHtml(){
     <div class="calgrid">${WD.map((w,i)=>`<div class="calw ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}${cells}</div>
     <div class="callg"><span><span class="ck plan">🍚予定</span></span><span><span class="ck brought">持込済</span></span>
       <span><span class="ck done">精米済</span></span><span><span class="ck short">90kg未満</span></span>
-      <span><span class="ck bring">👜持込日</span></span><span><span class="ck pick">予約受取</span></span></div>
+      <span><span class="ck bring">👜持込日</span></span><span><span class="ck pick">予約受取</span></span><span><span class="ck insp">🔍検査</span></span></div>
     <div class="mute" style="margin-top:6px;font-size:12px">精米日をタップで詳細へ。空いている日をタップすると精米日を追加できます（薄緑＝火・木）。</div>`;
 }
 function calTap(ds){
@@ -1341,7 +1424,10 @@ function pvControls(){
   }
   const g = lblGeom(), per = g.cols*g.rows, custom = LP.preset === 'custom';
   const num = (k,l,step) => `<div><label class="f">${l}</label><input type="number" step="${step||0.1}" data-lp="${k}" value="${LP[k]}"></div>`;
-  c.innerHTML = `${!ST('品種') ? '<div class="banner" style="margin-bottom:8px">品種が未設定です。⚙設定の「表示シール」で入力してください。</div>' : ''}
+  const lv = millView(D.milling.find(x => x.date === PV.rec) || { date:PV.rec });
+  const gradeWarn = lv.lot && lv.grade === '未検査' && /検査/.test(String(ST('確認文言1') || ''))
+    ? `<div class="banner" style="margin-bottom:8px">使う玄米 ${esc(lv.lot)} はまだ検査前です。シールの「${esc(ST('確認文言1'))}」が正しいか確認してください。</div>` : '';
+  c.innerHTML = `${gradeWarn}${!ST('品種') ? '<div class="banner" style="margin-bottom:8px">品種が未設定です。⚙設定の「表示シール」で入力してください。</div>' : ''}
     <label class="f">シール用紙</label>
     <select data-lp="preset">${LBL_PRESETS.map(p=>`<option value="${p.id}" ${LP.preset===p.id?'selected':''}>${p.name}</option>`).join('')}</select>
     ${custom ? `<div class="g4">${num('cols','列',1)}${num('rows','段',1)}${num('w','幅mm')}${num('h','高さmm')}
@@ -1595,6 +1681,7 @@ document.addEventListener('click', e => {
     const [obj, ...path] = b.dataset.step.split('.'); const d = Number(b.dataset.d);
     if(obj === 'F'){ F[path[0]] = Math.max(0, F[path[0]] + d); rRsv(); }
     else if(obj === 'S'){ S[path[0]] = Math.max(0, S[path[0]] + d); rShop(); }
+    else if(obj === 'H'){ H[path[0]] = Math.max(0, Math.round((Number(H[path[0]]) + d) * 10) / 10); rMill(); }
     else if(obj === 'M'){ const [date,k] = path; const m = D.milling.find(x=>x.date===date);
       M[date] = M[date] || {}; M[date][k] = Math.max(0, (M[date][k] ?? millView(m)[k] ?? 0) + d); rMill(); }
     return;
@@ -1626,6 +1713,15 @@ document.addEventListener('click', e => {
     rMill(); return;
   }
   if(b.dataset.mmove){ moveMill(b.dataset.mmove); return; }
+  if(b.id === 'hullOpen'){ H.open = true; rMill(); return; }
+  if(b.id === 'hullCancel'){ H.open = false; rMill(); return; }
+  if(b.id === 'hullAdd'){ addHull(); return; }
+  if(b.dataset.hdel){
+    const id = b.dataset.hdel;
+    if(D.milling.some(m => m.lot === id)) return toast(id + ' は精米の回で使われているので消せません');
+    if(!confirm(id + ' の記録を消しますか？')) return;
+    api('deleteHulling', { id }).then(() => { toast('消しました'); load(); }).catch(err => toast(err.message)); return;
+  }
   if(b.dataset.preq){ openPrint('req', b.dataset.preq); return; }
   if(b.dataset.calnav){ CAL.m += Number(b.dataset.calnav); if(CAL.m < 0){ CAL.m = 11; CAL.y--; } if(CAL.m > 11){ CAL.m = 0; CAL.y++; }
     const c = $('#millCal'); if(c) c.innerHTML = calHtml(); return; }
@@ -1702,6 +1798,7 @@ document.addEventListener('input', e => {
     clearTimeout(pvT); pvT = setTimeout(pvPages, 250); return;
   }
   if(i.dataset.f){ F[i.dataset.f] = i.value; return; }
+  if(i.dataset.h){ H[i.dataset.h] = i.value; return; }
   if(i.dataset.bg && i.tagName === 'INPUT'){ BG[i.dataset.bg] = i.value; return; }
   if(i.dataset.set && /^JAN/.test(i.dataset.set)){ janPreviewAll(); return; }
   if(i.dataset.s){ S[i.dataset.s] = i.value; return; }
@@ -1709,9 +1806,10 @@ document.addEventListener('input', e => {
   if(i.id === 'rsvQ'){ rsvQuery = i.value.trim(); clearTimeout(i._t); i._t = setTimeout(()=>{ rRsv(); const q=$('#rsvQ'); q.focus(); q.setSelectionRange(q.value.length,q.value.length); }, 300); return; }
   if(i.dataset.num){
     const [obj, ...path] = i.dataset.num.split('.');
-    const v = /\.(genx|arem)$/.test(i.dataset.num) ? Math.max(0, Math.round((Number(i.value)||0)*10)/10) : Math.max(0, Math.floor(Number(i.value)||0));
+    const v = /\.(genx|arem|frac|waste)$/.test(i.dataset.num) ? Math.max(0, Math.round((Number(i.value)||0)*10)/10) : Math.max(0, Math.floor(Number(i.value)||0));
     if(obj === 'F') F[path[0]] = v;
     else if(obj === 'S') S[path[0]] = v;
+    else if(obj === 'H') H[path[0]] = v;
     else if(obj === 'M'){ const [date,k] = path; M[date] = M[date] || {}; M[date][k] = v; }
     return;
   }
@@ -1727,6 +1825,8 @@ document.addEventListener('change', e => {
     return;
   }
   if(i.dataset.bg && i.tagName === 'SELECT'){ BG[i.dataset.bg] = i.value; if(i.dataset.bg === 'kind') rMill(); return; }
+  if(i.dataset.hid){ saveHull(i.dataset.hid, i.dataset.hk, i.value); return; }
+  if(i.dataset.h && i.dataset.h === 'date'){ H.date = i.value; rMill(); return; }
   if(i.id === 'shipFile'){ shipLoad(i.files && i.files[0]); return; }
   if(i.id === 'shipDate'){ SHIP.date = i.value; return; }
   if(i.id === 'shipRound'){ SHIP.round = Number(i.value) || 1; return; }

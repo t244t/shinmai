@@ -16,10 +16,12 @@ const HEAD = {
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
                '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '玄米端数kg',
                '実績米袋5kg', '実績無地袋5kg', '実績米袋2kg', '実績無地袋2kg', '実績余りkg',
-               '予備米袋5kg', '予備無地袋5kg', '予備米袋2kg', '予備無地袋2kg', '実際の持込日', '受取予定'],
+               '予備米袋5kg', '予備無地袋5kg', '予備米袋2kg', '予備無地袋2kg', '実際の持込日', '受取予定', '玄米ロット'],
   'タスク':   ['ID', '区分', 'タスク', '期限', '担当', '状態', '備考'],
   // 米袋・無地袋・新米シールの入庫と棚卸。使った枚数は精米記録（持込済・精米済）から計算する
   '袋在庫':   ['日付', '袋', '区分', '数量', '備考', '受付ID', '登録日時'],
+  // もみすり（玄米にした量）と等級検査。ロットIDで精米記録と結び付ける
+  '玄米記録': ['ロット', 'もみすり日', '玄米袋数', '玄米端数kg', 'くず米kg', '検査日', '等級', '備考', '登録日時'],
 };
 const BAGS = ['米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '新米シール'];
 
@@ -114,6 +116,8 @@ function doGet(e) {
     else if (a === 'saveMilling') out = locked_(() => saveMilling_(p));
     else if (a === 'addBagLog') out = locked_(() => addBagLog_(JSON.parse(p.data)));
     else if (a === 'deleteBagLog') out = locked_(() => deleteBagLog_(p.clientId));
+    else if (a === 'saveHulling') out = locked_(() => saveHulling_(p));
+    else if (a === 'deleteHulling') out = locked_(() => deleteHulling_(p.id));
     else if (a === 'saveTask') out = locked_(() => saveTask_(p));
     else if (a === 'savePrice') out = locked_(() => savePrice_(p));
     else if (a === 'saveStore') out = locked_(() => saveStore_(p));
@@ -370,7 +374,7 @@ function getAll_() {
       kg: b5 * (kg['5kg'] || 5) + b2 * (kg['2kg'] || 2),
       pay: n_(r['支払額']), status: String(r['状態'] || '予定'), note: String(r['備考']),
       s5k: n_(r['予備米袋5kg']), s5m: n_(r['予備無地袋5kg']), s2k: n_(r['予備米袋2kg']), s2m: n_(r['予備無地袋2kg']),
-      bring: d_(r['実際の持込日']), pickup: String(r['受取予定'] || ''),
+      bring: d_(r['実際の持込日']), pickup: String(r['受取予定'] || ''), lot: String(r['玄米ロット'] || ''),
     });
   }).filter(m => m.date).sort((a, b) => a.date < b.date ? -1 : 1);
 
@@ -384,7 +388,12 @@ function getAll_() {
     note: String(r['備考']), clientId: String(r['受付ID']), createdAt: dt_(r['登録日時']),
   })).filter(b => b.date && BAGS.indexOf(b.bag) >= 0);
 
-  return { ok: true, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks, bags };
+  const hulls = rows_(sheet_('玄米記録')).map(r => ({
+    id: String(r['ロット']), date: d_(r['もみすり日']), bags: n_(r['玄米袋数']), frac: n_(r['玄米端数kg']),
+    waste: n_(r['くず米kg']), inspect: d_(r['検査日']), grade: String(r['等級'] || '未検査'), note: String(r['備考']),
+  })).filter(h => h.id);
+
+  return { ok: true, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks, bags, hulls };
 }
 
 /* ---------------- 予約 ---------------- */
@@ -481,6 +490,46 @@ function deleteBagLog_(clientId) {
   return { ok: true };
 }
 
+/* ---------------- 玄米記録（もみすり・検査） ---------------- */
+
+const GRADES = ['未検査', '一等', '二等', '三等', '規格外'];
+
+function saveHulling_(p) {
+  const sh = sheet_('玄米記録');
+  const rows = rows_(sh);
+  const o = {};
+  if (p.date !== undefined) o['もみすり日'] = d_(p.date);
+  if (p.bags !== undefined) o['玄米袋数'] = Math.max(0, Math.floor(n_(p.bags)));
+  if (p.frac !== undefined) o['玄米端数kg'] = Math.max(0, Math.round(n_(p.frac) * 10) / 10);
+  if (p.waste !== undefined) o['くず米kg'] = Math.max(0, Math.round(n_(p.waste) * 10) / 10);
+  if (p.inspect !== undefined) o['検査日'] = p.inspect ? d_(p.inspect) : '';
+  if (p.grade !== undefined) {
+    if (GRADES.indexOf(p.grade) < 0) throw new Error('等級が不正です');
+    o['等級'] = p.grade;
+  }
+  if (p.note !== undefined) o['備考'] = p.note;
+  if (p.id) {
+    const r = rows.find(x => String(x['ロット']) === String(p.id));
+    if (!r) throw new Error('玄米の記録が見つかりません: ' + p.id);
+    writeRow_(sh, r._row, o);
+    return { ok: true, id: p.id };
+  }
+  if (!o['もみすり日']) throw new Error('もみすり日を入れてください');
+  let max = 0;
+  rows.forEach(r => { const m = String(r['ロット']).match(/^G(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
+  const id = 'G' + ('00' + (max + 1)).slice(-3);
+  appendRows_(sh, [toArr_(sh, Object.assign({ 'ロット': id, '等級': '未検査', '登録日時': nowStr_() }, o))]);
+  return { ok: true, id: id };
+}
+
+function deleteHulling_(id) {
+  const sh = sheet_('玄米記録');
+  const r = rows_(sh).find(x => String(x['ロット']) === String(id));
+  if (!r) throw new Error('玄米の記録が見つかりません');
+  sh.deleteRow(r._row);
+  return { ok: true };
+}
+
 /* ---------------- 精米記録 ---------------- */
 
 function saveMilling_(p) {
@@ -506,6 +555,7 @@ function saveMilling_(p) {
     .forEach(([k, h]) => { if (p[k] !== undefined) o[h] = cnt(p[k]); });
   if (p.bring !== undefined) o['実際の持込日'] = p.bring ? d_(p.bring) : '';
   if (p.pickup !== undefined) o['受取予定'] = p.pickup;
+  if (p.lot !== undefined) o['玄米ロット'] = p.lot;
   // 精米日の変更（精米所の都合で日がずれたとき）
   if (p.newDate) {
     const nd = d_(p.newDate);
