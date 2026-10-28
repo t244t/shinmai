@@ -84,6 +84,9 @@ nav button.on{color:var(--green);font-weight:700}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
 .kpi b{display:block;font-size:20px}
 .kpi small{color:var(--mute);font-size:12px}
+tr.tot td{border-top:2px solid var(--line)}
+.daylist tr[data-dayset]{cursor:pointer}
+.daylist tr.sel td{background:var(--green2)}
 .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .pc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .pc .sz{font-weight:700;font-size:15px}
@@ -293,7 +296,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/28 精米の入力を①依頼②持込③実績に';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/28 日ごとの集計';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -389,6 +392,61 @@ const prices = () => (D && D.prices) || [];
 const price = size => prices().find(p => p.size === size) || { kg: size==='5kg'?5:2, rsv:0, inc:0 };
 const activeStores = () => ((D && D.stores) || []).filter(s => s.active);
 const minKg = () => Number((D && D.settings && D.settings['精米最低量kg']) || 90);
+
+/* ===== 日ごとの集計（予約の受付・受取と店舗の販売） ===== */
+const DAY = { date:'', list:false };
+function daySum(ds){
+  const rs = ((D && D.reservations) || []).filter(r => r.status !== 'キャンセル');
+  const rIn = rs.filter(r => r.date === ds);                                   // その日に受け付けた予約
+  const rOut = rs.filter(r => r.status === '済' && r.pickedAt === ds);         // その日に受け取られた予約
+  const sum = (a, k) => a.reduce((x, r) => x + (Number(r[k]) || 0), 0);
+  const shops = {};
+  allLogs().filter(l => l.date === ds && (l.kind === '販売' || l.kind === '返品')).forEach(l => {
+    const x = shops[l.store] = shops[l.store] || { b5:0, b2:0 };
+    const q = (Number(l.qty) || 0) * (l.kind === '返品' ? 0 : 1);           // 販売だけ数える
+    if(l.size === '5kg') x.b5 += q; else if(l.size === '2kg') x.b2 += q;
+  });
+  const rows = Object.keys(shops).map(name => { const x = shops[name];
+    return { name, b5:x.b5, b2:x.b2, yen: x.b5 * price('5kg').inc + x.b2 * price('2kg').inc }; }).filter(r => r.b5 + r.b2 > 0)
+    .sort((a, b) => b.yen - a.yen);
+  return {
+    rin: { n:rIn.length, b5:sum(rIn,'b5'), b2:sum(rIn,'b2'), yen:sum(rIn,'amount') },
+    rout: { n:rOut.length, b5:sum(rOut,'b5'), b2:sum(rOut,'b2'), yen:sum(rOut,'amount') },
+    shops: rows, sb5: rows.reduce((a, r) => a + r.b5, 0), sb2: rows.reduce((a, r) => a + r.b2, 0), syen: rows.reduce((a, r) => a + r.yen, 0),
+  };
+}
+function dayHtml(){
+  const ds = DAY.date || today(), x = daySum(ds);
+  let h = `<h2>日ごとの集計</h2><div class="card">
+    <div class="calhd"><button class="btn sm ghost" data-day="-1">‹ 前日</button><b>${md(ds)}${ds===today()?'（今日）':''}</b>
+      <button class="btn sm ghost" data-day="1" ${ds>=today()?'disabled':''}>翌日 ›</button></div>
+    <div class="scroll"><table>
+      <tr><th></th><th>件数</th><th>5kg</th><th>2kg</th><th>金額</th></tr>
+      <tr><td>予約の受付</td><td>${x.rin.n}</td><td>${x.rin.b5}</td><td>${x.rin.b2}</td><td>${yen(x.rin.yen)}</td></tr>
+      <tr><td>予約の受取</td><td>${x.rout.n}</td><td>${x.rout.b5}</td><td>${x.rout.b2}</td><td>${yen(x.rout.yen)}</td></tr>
+      <tr><th colspan="5" style="text-align:left">店舗の販売</th></tr>
+      ${x.shops.length ? x.shops.map(r => `<tr><td>${esc(r.name)}</td><td></td><td>${r.b5}</td><td>${r.b2}</td><td>${yen(r.yen)}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="mute">この日の販売の記録はありません</td></tr>'}
+      <tr class="tot"><td><b>店舗 計</b></td><td></td><td><b>${x.sb5}</b></td><td><b>${x.sb2}</b></td><td><b>${yen(x.syen)}</b></td></tr>
+    </table></div>
+    <div class="mute" style="font-size:12px;margin-top:6px">予約の金額は予約価格、店舗の販売は税込価格で計算。販売は売上CSV・手入力の「販売」から。</div>
+    <button class="btn sub full" id="dayList" style="margin-top:8px">${DAY.list ? '14日分の一覧を閉じる' : '14日分を一覧で見る'}</button>
+    ${DAY.list ? dayListHtml(ds) : ''}
+  </div>`;
+  return h;
+}
+function dayListHtml(end){
+  const days = Array.from({ length:14 }, (_, i) => addDays(end, -i));
+  let t5 = 0, t2 = 0, ty = 0, tn = 0;
+  const rows = days.map(ds => { const x = daySum(ds); t5 += x.sb5; t2 += x.sb2; ty += x.syen; tn += x.rin.n;
+    return `<tr class="${ds===(DAY.date||today())?'sel':''}" data-dayset="${ds}"><td>${md(ds)}</td><td>${x.rin.n || ''}</td><td>${x.rin.b5 + x.rin.b2 || ''}</td>
+      <td>${x.sb5 || ''}</td><td>${x.sb2 || ''}</td><td>${x.syen ? yen(x.syen) : ''}</td></tr>`; }).join('');
+  return `<div class="scroll" style="margin-top:8px"><table class="daylist">
+    <tr><th>日付</th><th>予約<br>件数</th><th>予約<br>袋</th><th>販売<br>5kg</th><th>販売<br>2kg</th><th>店舗売上</th></tr>
+    ${rows}
+    <tr class="tot"><td><b>14日計</b></td><td><b>${tn}</b></td><td></td><td><b>${t5}</b></td><td><b>${t2}</b></td><td><b>${yen(ty)}</b></td></tr>
+  </table></div><div class="mute" style="font-size:12px;margin-top:4px">行を押すとその日の内訳を表示します。</div>`;
+}
 
 function allLogs(){
   const logs = ((D && D.logs) || []).map(l => Object.assign({ pending:false }, l));
@@ -670,6 +728,7 @@ function rHome(){
   h += `<h2>これからの7日間</h2><div class="card" style="padding:8px">${weekHtml()}
     <div class="mute" style="font-size:12px;margin-top:6px">タップで精米タブのカレンダーへ</div></div>`;
 
+  h += dayHtml();
   h += `<h2>予約（未受取）</h2><div class="kpis">
     <div class="kpi"><b>${open.length}</b><small>件</small></div>
     <div class="kpi"><b>${o5}</b><small>5kg 袋</small></div>
@@ -1729,6 +1788,8 @@ function rSet(){
 
 /* ===== イベント ===== */
 document.addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-dayset]');
+  if(tr){ DAY.date = tr.dataset.dayset; rHome(); return; }
   const b = e.target.closest('button'); if(!b) return;
   if(b.dataset.tab){ tab = b.dataset.tab; lsSet(K.tab, tab); render(); window.scrollTo(0,0); return; }
   if(b.id === 'reload'){ load(); flush(); return; }
@@ -1772,6 +1833,8 @@ document.addEventListener('click', e => {
   if(b.dataset.mstep){ const [d, k] = b.dataset.mstep.split('|'); const v = millView(D.milling.find(x => x.date === d));
     MS[d] = millStep(v) === k ? '' : k; rMill(); const c = document.getElementById('mill-' + d); if(c) c.scrollIntoView({ block:'start' }); return; }
   if(b.dataset.mgo){ millGo(...b.dataset.mgo.split('|')); return; }
+  if(b.dataset.day){ DAY.date = addDays(DAY.date || today(), Number(b.dataset.day)); if(DAY.date > today()) DAY.date = today(); rHome(); return; }
+  if(b.id === 'dayList'){ DAY.list = !DAY.list; rHome(); return; }
   if(b.id === 'hullOpen'){ H.open = true; rMill(); return; }
   if(b.id === 'hullCancel'){ H.open = false; rMill(); return; }
   if(b.id === 'hullAdd'){ addHull(); return; }
