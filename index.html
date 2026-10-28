@@ -86,6 +86,7 @@ nav button.on{color:var(--green);font-weight:700}
 .kpi small{color:var(--mute);font-size:12px}
 tr.tot td{border-top:2px solid var(--line)}
 .daylist tr[data-dayset]{cursor:pointer}
+.hold{font-size:11px;color:var(--mute);white-space:nowrap}
 .daylist tr.sel td{background:var(--green2)}
 .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .pc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
@@ -296,7 +297,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/28 日ごとの集計';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/28 予約の取り置き表示';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -429,7 +430,7 @@ function dayHtml(){
         : '<tr><td colspan="5" class="mute">この日の販売の記録はありません</td></tr>'}
       <tr class="tot"><td><b>店舗 計</b></td><td></td><td><b>${x.sb5}</b></td><td><b>${x.sb2}</b></td><td><b>${yen(x.syen)}</b></td></tr>
     </table></div>
-    <div class="mute" style="font-size:12px;margin-top:6px">予約の金額は予約価格、店舗の販売は税込価格で計算。販売は売上CSV・手入力の「販売」から。</div>
+    <div class="mute" style="font-size:12px;margin-top:6px">予約の金額は予約価格、店舗の販売は税込価格で計算。販売は売上CSV・手入力の「販売」から。予約の受け取りはレジを通るので店舗の販売にも含まれます（予約の受取と足さないでください）。</div>
     <button class="btn sub full" id="dayList" style="margin-top:8px">${DAY.list ? '14日分の一覧を閉じる' : '14日分を一覧で見る'}</button>
     ${DAY.list ? dayListHtml(ds) : ''}
   </div>`;
@@ -453,6 +454,7 @@ function allLogs(){
   Q.forEach(q => logs.push(Object.assign({ pending:true }, q)));
   return logs;
 }
+const remCell = (r, h, f) => h ? `${r}<div class="hold">取置${h}・店頭<span class="${f<0?'warn':''}">${f}</span></div>` : String(r);
 function stockTable(){
   const t = {};
   const blank = () => ({ 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0}, 移動入:{'5kg':0,'2kg':0}, 移動出:{'5kg':0,'2kg':0} });
@@ -470,7 +472,11 @@ function stockTable(){
     const dist = x.配布['5kg'] + x.配布['2kg'] + mv('5kg') + mv('2kg');      // 店舗に入った数（移動を含む）
     const sold = x.販売['5kg'] + x.販売['2kg'];
     const sales = x.販売['5kg']*price('5kg').inc + x.販売['2kg']*price('2kg').inc;
-    return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], mv: mv('5kg') + mv('2kg'), r5, r2, rate: dist>0 ? sold/dist : null, sales };
+    // 予約の取り置き：その店舗で受け付けた未受取の予約（受け取りはレジを通るので、売上CSVで販売になったら残りから減る）
+    const hold = rsvOpen().filter(r => r.store === name);
+    const h5 = hold.reduce((a, r) => a + (Number(r.b5)||0), 0), h2 = hold.reduce((a, r) => a + (Number(r.b2)||0), 0);
+    return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], mv: mv('5kg') + mv('2kg'), r5, r2, h5, h2,
+      f5: r5 - h5, f2: r2 - h2, rate: dist>0 ? sold/dist : null, sales };
   });
 }
 /** 精米1回分（編集中の値を反映）と計算結果 */
@@ -741,8 +747,8 @@ function rHome(){
     : '<div class="card mute">3日以内のタスクはありません</div>';
 
   h += `<h2>店舗の残り</h2><div class="card scroll"><table><tr><th>店舗</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th></tr>
-    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.r5}</td><td>${s.r2}</td><td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td></tr>`).join('')}
-    </table></div>`;
+    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td><td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td></tr>`).join('')}
+    </table>${st.some(s => s.h5 + s.h2) ? '<div class="mute" style="font-size:12px;margin-top:6px">取置＝その店舗で受け付けた未受取の予約。店頭＝残−取置（店頭で売れる数）。店頭がマイナスなら予約分をまだ送っていません。</div>' : ''}</div>`;
   el.innerHTML = h;
 }
 
@@ -839,9 +845,9 @@ function rShop(){
   <h2>店舗別の状況</h2>
   <div class="card scroll"><table>
     <tr><th>店舗</th><th>配布</th><th>移動</th><th>販売</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
-    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td><td>${s.r5}</td><td>${s.r2}</td>
+    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td><td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td>
       <td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td><td>${yen(s.sales)}</td></tr>`).join('')}
-  </table><div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。売上は税込価格で計算。</div></div>
+  </table><div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
   <h2>${esc(S.store)} の最近の記録</h2>
   <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
       <div><span class="badge ${l.kind==='販売'?'g':l.kind==='配布'||l.kind==='移動入'?'b':'a'}">${esc(l.kind)}</span>
