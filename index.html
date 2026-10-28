@@ -168,6 +168,21 @@ a{color:var(--blue)}
 .page.land{width:297mm;height:210mm}
 .page.port{width:210mm;height:297mm}
 /* 依頼書 */
+.dr{position:absolute;inset:12mm 12mm;font-size:3.4mm;color:#000;line-height:1.4}
+.dr .drh{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:.8mm solid #000;padding-bottom:2mm;margin-bottom:3mm}
+.dr .drh h1{font-size:7mm;margin:0;letter-spacing:1mm}
+.dr .drh div{text-align:right;font-size:4mm}
+.dr .drh small{font-size:2.8mm;color:#444}
+.dr h2{font-size:4.2mm;margin:4mm 0 1.5mm;color:#000}
+.dr table{width:100%;border-collapse:collapse}
+.dr th,.dr td{border:.25mm solid #000;padding:1.2mm 1mm;text-align:center;font-size:3.4mm;color:#000;font-weight:400}
+.dr th{background:#eee;font-weight:600;font-size:3mm}
+.dr td.l{text-align:left;padding-left:2mm}
+.dr td.r{text-align:right;padding-right:2mm}
+.dr td.neg{font-weight:700;text-decoration:underline}
+.dr tr.tt td{border-top:.7mm solid #000;font-weight:700}
+.dr table.sm td,.dr table.sm th{font-size:3.1mm;padding:1mm}
+.dr .nt{font-size:2.7mm;color:#333;margin-top:1.2mm}
 .rq2{position:absolute;top:9mm;width:130mm;font-size:3.2mm;line-height:1.35;color:#000}
 .rq2 .hd{display:flex;justify-content:space-between;align-items:center;border-bottom:.7mm solid #000;padding-bottom:1.5mm}
 .rq2 h1{font-size:6mm;margin:0;letter-spacing:1.5mm}
@@ -297,7 +312,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/28 予約の取り置き表示';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/28 日報の印刷';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -431,6 +446,7 @@ function dayHtml(){
       <tr class="tot"><td><b>店舗 計</b></td><td></td><td><b>${x.sb5}</b></td><td><b>${x.sb2}</b></td><td><b>${yen(x.syen)}</b></td></tr>
     </table></div>
     <div class="mute" style="font-size:12px;margin-top:6px">予約の金額は予約価格、店舗の販売は税込価格で計算。販売は売上CSV・手入力の「販売」から。予約の受け取りはレジを通るので店舗の販売にも含まれます（予約の受取と足さないでください）。</div>
+    <button class="btn full" data-dayprint="${ds}" style="margin-top:8px">🖨 この日の日報を印刷</button>
     <button class="btn sub full" id="dayList" style="margin-top:8px">${DAY.list ? '14日分の一覧を閉じる' : '14日分を一覧で見る'}</button>
     ${DAY.list ? dayListHtml(ds) : ''}
   </div>`;
@@ -454,12 +470,18 @@ function allLogs(){
   Q.forEach(q => logs.push(Object.assign({ pending:true }, q)));
   return logs;
 }
+/** その日の終わりに取り置きだった予約（受付済み・その日までに受け取られていない） */
+function holdsAt(ds){
+  return ((D && D.reservations) || []).filter(r => r.status !== 'キャンセル' && r.date && r.date <= ds
+    && (r.status === '未' || (r.status === '済' && r.pickedAt && r.pickedAt > ds)));
+}
 const remCell = (r, h, f) => h ? `${r}<div class="hold">取置${h}・店頭<span class="${f<0?'warn':''}">${f}</span></div>` : String(r);
-function stockTable(){
+/** 店舗ごとの残り。asOf（日付）を渡すとその日の終わり時点で計算（日報の印刷用） */
+function stockTable(asOf){
   const t = {};
   const blank = () => ({ 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0}, 移動入:{'5kg':0,'2kg':0}, 移動出:{'5kg':0,'2kg':0} });
   activeStores().forEach(s => t[s.name] = blank());
-  allLogs().forEach(l => {
+  allLogs().filter(l => !asOf || (l.date && l.date <= asOf)).forEach(l => {
     if(!t[l.store]) t[l.store] = blank();
     if(t[l.store][l.kind] && l.size in t[l.store][l.kind]) t[l.store][l.kind][l.size] += Number(l.qty)||0;
   });
@@ -473,7 +495,7 @@ function stockTable(){
     const sold = x.販売['5kg'] + x.販売['2kg'];
     const sales = x.販売['5kg']*price('5kg').inc + x.販売['2kg']*price('2kg').inc;
     // 予約の取り置き：その店舗で受け付けた未受取の予約（受け取りはレジを通るので、売上CSVで販売になったら残りから減る）
-    const hold = rsvOpen().filter(r => r.store === name);
+    const hold = (asOf ? holdsAt(asOf) : rsvOpen()).filter(r => r.store === name);
     const h5 = hold.reduce((a, r) => a + (Number(r.b5)||0), 0), h2 = hold.reduce((a, r) => a + (Number(r.b2)||0), 0);
     return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], mv: mv('5kg') + mv('2kg'), r5, r2, h5, h2,
       f5: r5 - h5, f2: r2 - h2, rate: dist>0 ? sold/dist : null, sales };
@@ -1532,10 +1554,54 @@ function openPrint(mode, date){
   document.body.style.overflow = 'hidden';
   pvControls(); pvPages();
 }
+/** 日報（その日の店舗別の販売・取り置き・残り）の印刷 */
+function openDayPrint(ds){
+  Object.assign(PV, { mode:'day', date: ds });
+  $('#pvTitle').textContent = '新米 日報';
+  $('#pageStyle').textContent = '@page{size:A4 portrait;margin:0}';
+  $('#pv').hidden = false; document.body.style.overflow = 'hidden';
+  pvControls(); pvPages();
+}
+function dayReportHtml(ds){
+  const x = daySum(ds), st = stockTable(ds), sold = {};
+  x.shops.forEach(r => sold[r.name] = r);
+  const names = st.map(s => s.name);
+  x.shops.forEach(r => { if(names.indexOf(r.name) < 0) names.push(r.name); });
+  const rows = names.map(n => { const s = st.find(y => y.name === n) || { r5:0, r2:0, h5:0, h2:0, f5:0, f2:0 }, o = sold[n] || { b5:0, b2:0, yen:0 };
+    return { n, s, o }; }).filter(r => r.o.b5 + r.o.b2 + r.s.h5 + r.s.h2 + r.s.r5 + r.s.r2 !== 0);
+  const tt = k => rows.reduce((a, r) => a + (k(r) || 0), 0);
+  const z = v => v ? v : '';
+  const holds = holdsAt(ds).sort((a, b) => (a.store + a.id) < (b.store + b.id) ? -1 : 1);
+  const [y, m, d] = ds.split('-').map(Number);
+  return `<div class="dr">
+    <div class="drh"><h1>新米 日報</h1><div><b>令和${y-2018}年${m}月${d}日（${WD[new Date(y, m-1, d).getDay()]}）</b><br><small>${esc(ST('会社名'))}　印刷 ${md(today())}</small></div></div>
+    <h2>店舗別</h2>
+    <table><tr><th rowspan="2">店舗</th><th colspan="3">この日の販売</th><th colspan="2">取り置き（予約）</th><th colspan="2">残り（日の終わり）</th><th colspan="2">うち店頭</th></tr>
+      <tr><th>5kg</th><th>2kg</th><th>売上</th><th>5kg</th><th>2kg</th><th>5kg</th><th>2kg</th><th>5kg</th><th>2kg</th></tr>
+      ${rows.map(r => `<tr><td class="l">${esc(r.n)}</td><td>${z(r.o.b5)}</td><td>${z(r.o.b2)}</td><td class="r">${r.o.yen ? yen(r.o.yen) : ''}</td>
+        <td>${z(r.s.h5)}</td><td>${z(r.s.h2)}</td><td>${r.s.r5}</td><td>${r.s.r2}</td><td class="${r.s.f5<0?'neg':''}">${r.s.f5}</td><td class="${r.s.f2<0?'neg':''}">${r.s.f2}</td></tr>`).join('')}
+      <tr class="tt"><td class="l">合計</td><td>${tt(r => r.o.b5)}</td><td>${tt(r => r.o.b2)}</td><td class="r">${yen(tt(r => r.o.yen))}</td>
+        <td>${tt(r => r.s.h5)}</td><td>${tt(r => r.s.h2)}</td><td>${tt(r => r.s.r5)}</td><td>${tt(r => r.s.r2)}</td><td>${tt(r => r.s.f5)}</td><td>${tt(r => r.s.f2)}</td></tr></table>
+    <div class="nt">販売は売上CSV・手入力の「販売」から（税込価格で計算）。取り置き＝その日の終わりに未受取の予約。店頭＝残り−取り置き（マイナスは予約分が未着）。</div>
+    <h2>予約</h2>
+    <table class="sm"><tr><th></th><th>件数</th><th>5kg</th><th>2kg</th><th>金額（予約価格）</th></tr>
+      <tr><td class="l">この日の受付</td><td>${x.rin.n}</td><td>${x.rin.b5}</td><td>${x.rin.b2}</td><td class="r">${yen(x.rin.yen)}</td></tr>
+      <tr><td class="l">この日の受取</td><td>${x.rout.n}</td><td>${x.rout.b5}</td><td>${x.rout.b2}</td><td class="r">${yen(x.rout.yen)}</td></tr></table>
+    <h2>取り置きの内訳（${holds.length}件）</h2>
+    ${holds.length ? `<table class="sm"><tr><th>店舗</th><th>予約ID</th><th>お名前</th><th>5kg</th><th>2kg</th><th>受取予定</th><th>受付日</th></tr>
+      ${holds.map(r => `<tr><td class="l">${esc(r.store||'')}</td><td>${esc(r.id)}</td><td class="l">${esc(r.name)}</td><td>${z(r.b5)}</td><td>${z(r.b2)}</td><td>${r.pickup?md(r.pickup):''}</td><td>${md(r.date)}</td></tr>`).join('')}</table>`
+      : '<div class="nt">取り置きはありません</div>'}
+  </div>`;
+}
 function closePrint(){ $('#pv').hidden = true; document.body.style.overflow = ''; $('#pvScale').innerHTML = ''; }
 
 function pvControls(){
   const c = $('#pvCtl');
+  if(PV.mode === 'day'){
+    c.innerHTML = `<label class="f">日付</label><input type="date" data-pv="date" value="${PV.date}" max="${today()}">
+      <div class="mute" style="margin-top:6px">A4縦。お名前が入るので、取り扱いに気を付けてください。</div>`;
+    return;
+  }
   if(PV.mode === 'req'){
     c.innerHTML = `<div class="grid2"><div><label class="f">持込日（依頼日）</label><input type="date" data-pv="reqDate" value="${PV.reqDate}"></div>
       <div><label class="f">精米日</label><input type="date" data-pv="date" value="${PV.date}"></div></div>
@@ -1628,7 +1694,9 @@ function labelHtml(size){
 function pvPages(){
   const box = $('#pvScale');
   let html = '', land = PV.mode === 'req';
-  if(PV.mode === 'req'){
+  if(PV.mode === 'day'){
+    html = `<div class="page port">${dayReportHtml(PV.date || today())}</div>`;
+  } else if(PV.mode === 'req'){
     const v = millView(D.milling.find(x => x.date === PV.rec) || { date:PV.rec });
     html = `<div class="page land">${reqCopy(v, 10, '精米所様 用')}${reqCopy(v, 157, '農・みのり 控え')}</div><div class="cutline"></div>`;
   } else {
@@ -1840,6 +1908,7 @@ document.addEventListener('click', e => {
     MS[d] = millStep(v) === k ? '' : k; rMill(); const c = document.getElementById('mill-' + d); if(c) c.scrollIntoView({ block:'start' }); return; }
   if(b.dataset.mgo){ millGo(...b.dataset.mgo.split('|')); return; }
   if(b.dataset.day){ DAY.date = addDays(DAY.date || today(), Number(b.dataset.day)); if(DAY.date > today()) DAY.date = today(); rHome(); return; }
+  if(b.dataset.dayprint){ openDayPrint(b.dataset.dayprint); return; }
   if(b.id === 'dayList'){ DAY.list = !DAY.list; rHome(); return; }
   if(b.id === 'hullOpen'){ H.open = true; rMill(); return; }
   if(b.id === 'hullCancel'){ H.open = false; rMill(); return; }
