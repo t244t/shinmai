@@ -200,6 +200,21 @@ a{color:var(--blue)}
 .rq td{border:.25mm solid #000;height:12mm;padding:0 2mm;text-align:center;font-size:3.3mm}
 .rq table.gen{border:.6mm solid #000}
 .rq table.gen td{border:0;height:15mm}
+.steps{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.stp{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 10px;font:inherit;color:inherit;cursor:pointer}
+.stp .no{flex:none;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--green2);color:var(--green);font-weight:800}
+.stp.ok .no{background:var(--green);color:#fff}
+.stp.on{border-color:var(--green);box-shadow:0 0 0 1px var(--green) inset}
+.stp .tt{flex:1;min-width:0;display:flex;flex-direction:column}
+.stp .tt small{color:var(--mute);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stp .ar{color:var(--mute);font-size:11px}
+.stb{border:1px solid var(--green);border-top:0;border-radius:0 0 10px 10px;margin-top:-8px;padding:10px;background:#fbfdfb}
+.stb .sbl{font-weight:700;font-size:13px;margin:10px 0 2px;color:var(--green)}
+.stb .sbl:first-child{margin-top:0}
+.more{margin-top:8px}
+.more summary{font-size:13px;color:var(--mute);cursor:pointer;padding:4px 0}
+.card.mc.past{opacity:1}
+.card.mc.past .steps{opacity:.85}
 .act{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 .rq table.gen tr.fr td{height:8mm;padding-bottom:2mm}
 .rq td.n{font-size:5mm;font-weight:600;text-align:right}
@@ -278,7 +293,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/27 玄米（もみすり）と検査';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/28 精米の入力を①依頼②持込③実績に';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -1110,6 +1125,91 @@ async function delLog(id, pending){
 }
 
 /* --- 精米 --- */
+/* --- 精米日のカード：① 依頼 → ② 持込 → ③ 精米後（実績）の順に、今やる段だけ開く --- */
+const MS = {};   // 精米日ごとに開いている段（req / bring / act / ''）
+function millStep(v){
+  if(MS[v.date] !== undefined) return MS[v.date];
+  return v.status === '予定' ? 'req' : v.status === '持込済' ? 'act' : '';
+}
+function millCardHtml(m, td){
+  const v = millView(m), d = m.date, open = millStep(v);
+  const sp = (k,l) => `<div><label class="f">${l}</label>${stepper('M.'+d+'.'+k, v[k])}</div>`;
+  const rest = v.expect - v.kg;
+  const st = v.status, done1 = v.kg > 0 || v.genKg > 0, done2 = st === '持込済' || st === '精米済', done3 = st === '精米済' && ['a5k','a5m','a2k','a2m','arem'].some(k => m[k] != null && m[k] !== '');   // 保存済みの実績があるときだけ✓
+  const bagsTxt = [['米袋5kg',v.b5k,v.s5k],['無地袋5kg',v.b5m,v.s5m],['米袋2kg',v.b2k,v.s2k],['無地袋2kg',v.b2m,v.s2m]]
+    .filter(x => x[1] + x[2] > 0).map(x => `${x[0]} <b>${x[1]+x[2]}枚</b>${x[2]?`（予備${x[2]}）`:''}`).join('／') || 'なし';
+  const head = (key, no, title, ok, sum) => `<button class="stp ${open===key?'on':''} ${ok?'ok':''}" data-mstep="${d}|${key}">
+      <span class="no">${ok?'✓':no}</span><span class="tt"><b>${title}</b><small>${sum}</small></span><span class="ar">${open===key?'▲':'▼'}</span></button>`;
+  // ① 依頼
+  const s1 = head('req', '①', '依頼（持ち込む前に入れる）', done1,
+    done1 ? `玄米${v.genKg||'-'}kg → 5kg×${v.b5}・2kg×${v.b2}＝${v.kg}kg${v.spare?`・予備${v.spare}枚`:''}` : 'まだ入っていません') +
+    (open === 'req' ? `<div class="stb">
+      ${hulls().length ? `<label class="f">使う玄米</label><select data-m="${d}" data-k="lot">
+        <option value="">（選ばない）</option>
+        ${hulls().map(h => `<option value="${esc(h.id)}" ${v.lot===h.id?'selected':''}>${esc(h.id)}・${md(h.date)}・${esc(h.grade)}・${hullKg(h)}kg</option>`).join('')}</select>` : ''}
+      <div class="sbl">持ち込む玄米</div>
+      <div class="millgrid">${sp('gen','玄米（'+ST('玄米袋kg')+'kg袋）')}${sp('genx','玄米の端数（kg）')}</div>
+      <div class="sbl">袋詰めしてほしい数</div>
+      <div class="millgrid">${sp('b5k','米袋 5kg')}${sp('b5m','無地袋 5kg')}${sp('b2k','米袋 2kg')}${sp('b2m','無地袋 2kg')}</div>
+      <div class="calc">袋詰め：5kg×${v.b5}・2kg×${v.b2} ＝ <b>${v.kg}kg</b>
+        ${v.genKg?`<br>玄米 ${v.genKg}kg → 精米後 約${v.expect}kg（${pct(1-Number(ST('歩留まり')))}%減）
+          <br>${rest>=0?`余り 約${rest}kg（無地袋2kgへ）`:`<span class="warn">袋詰めが見込みより${-rest}kg多い</span>`}`:''}</div>
+      <div class="sbl row between"><span>予備の袋（多めに渡す分）</span>
+        <button class="btn sm ghost" data-spare="${d}">予備を＋${Number(ST('袋の予備枚数'))||0}にする</button></div>
+      <div class="millgrid">${sp('s5k','米袋 5kg')}${sp('s5m','無地袋 5kg')}${sp('s2k','米袋 2kg')}${sp('s2m','無地袋 2kg')}</div>
+      <div class="calc">渡す袋：${bagsTxt}</div>
+      <div class="btnrow" style="grid-template-columns:1fr 1fr">
+        <button class="btn ${v.dirty?'':'sub'}" data-msave="${d}" ${v.dirty?'':'disabled'}>保存</button>
+        <button class="btn sub" data-preq="${d}">🖨 依頼書</button></div>
+    </div>` : '');
+  // ② 持込
+  const s2 = head('bring', '②', '持込（精米所へ持っていく）', done2,
+    done2 ? `持込 ${md(v.bring)}${v.pickup?`・受取 ${esc(v.pickup)}`:''}` : `予定 ${md(v.bring)}`) +
+    (open === 'bring' ? `<div class="stb">
+      <div class="grid2">
+        <div><label class="f">持込日</label><input type="date" data-m="${d}" data-k="bring" value="${esc(done2 || v.bringSet ? v.bring : (d > td && addDays(d,-1) >= td ? addDays(d,-1) : td))}"></div>
+        <div><label class="f">受取予定（精米所に言われた時間）</label><input type="text" data-m="${d}" data-k="pickup" value="${esc(v.pickup)}" placeholder="例：午後"></div>
+      </div>
+      ${v.fee ? `<div class="mute" style="margin-top:6px">精米代の目安：玄米${v.genKg}kg × ${Number(ST('精米単価'))}円 ＝ <b>${yen(v.fee)}</b>（袋の料金は別）</div>` : ''}
+      <div class="mute" style="font-size:12px;margin-top:6px">精米所の都合で日がずれたら、下の「📅 精米日を変更」で動かします。</div>
+      ${done2 ? `<div class="btnrow" style="grid-template-columns:1fr"><button class="btn ${v.dirty?'':'sub'}" data-msave="${d}" ${v.dirty?'':'disabled'}>保存</button></div>`
+        : `<button class="btn full" data-mgo="${d}|bring" style="margin-top:10px">✅ 持ち込んだ（持込済にする）</button>`}
+    </div>` : '');
+  // ③ 精米後（実績）
+  const sum3 = st !== '精米済' ? '精米が終わったら入れる'
+    : !done3 ? '実績がまだ保存されていません'
+    : v.diff.length ? '依頼との差：' + v.diff.map(x => `${x.name} ${x.d>0?'+':''}${x.d}`).join('・') : '依頼どおり';
+  const s3 = head('act', '③', '精米後（実際の数を入れる）', done3, sum3) +
+    (open === 'act' ? `<div class="stb">
+      ${st !== '精米済' ? `<div class="mute">受け取ったら押してください。依頼の数が入った状態で、実際の数を直せるようになります。</div>
+        <button class="btn full" data-mgo="${d}|done" style="margin-top:10px">✅ 精米が終わった（実績を入れる）</button>`
+      : `<div class="sbl">実際にできた袋の数（依頼と違う所だけ直す）</div>
+        <div class="millgrid">${sp('a5k','米袋 5kg')}${sp('a5m','無地袋 5kg')}${sp('a2k','米袋 2kg')}${sp('a2m','無地袋 2kg')}${sp('arem','残った端数（kg）')}<div></div></div>
+        <div class="calc">実績：5kg×${v.a5k+v.a5m}・2kg×${v.a2k+v.a2m} ＝ <b>${(v.a5k+v.a5m)*price('5kg').kg + (v.a2k+v.a2m)*price('2kg').kg}kg</b>${v.arem?`＋余り${v.arem}kg`:''}
+          <br>${!v.hasAct ? '<span class="warn">まだ保存されていません</span>'
+            : v.diff.length ? '依頼との差：' + v.diff.map(x => `${x.name} <b class="${x.d<0?'warn':'okc'}">${x.d>0?'+':''}${x.d}袋</b>`).join('／')
+            : '<span class="okc">依頼どおり</span>'}</div>
+        <label class="f">支払った精米代（円）</label><input type="number" inputmode="numeric" data-m="${d}" data-k="pay" value="${esc(v.pay)}" placeholder="${v.fee?'目安 '+v.fee:''}">
+        <div class="btnrow" style="grid-template-columns:1fr 1fr">
+          <button class="btn ${v.dirty?'':'sub'}" data-msave="${d}" ${v.dirty?'':'disabled'}>実績を保存</button>
+          <button class="btn sub" data-plbl="${d}">🏷 シール</button></div>`}
+    </div>` : '');
+  const stopped = st === '中止';
+  return `<div class="card mc ${m.date < td || st==='精米済' || stopped ? 'past' : ''}" id="mill-${d}">
+    <div class="row between"><div><b style="font-size:17px">${md(d)}</b> <span class="badge">${period(d)}</span> <span class="badge ${st==='精米済'?'g':st==='持込済'?'a':st==='中止'?'r':'b'}">${esc(st)}</span>
+        ${v.lot?`<div class="mute" style="font-size:12px">玄米 ${esc(v.lot)} ${gradeBadge(v.grade)}</div>`:''}</div>
+      <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
+        ${v.short?`<div class="warn" style="font-size:12px">${minKg()}kgまであと${minKg()-v.base}kg</div>`:`<div class="mute" style="font-size:11px">${v.genKg?'玄米で判定':'袋詰め量で判定'}</div>`}</div></div>
+    ${stopped ? '<div class="mute" style="margin-top:6px">この回は中止です。</div>' : `<div class="steps">${s1}${s2}${s3}</div>`}
+    <details class="more"><summary>その他（備考・日の変更・状態）</summary>
+      <label class="f">備考</label><input type="text" data-m="${d}" data-k="note" value="${esc(v.note)}">
+      <div class="grid2"><div><label class="f">状態を直す</label><select data-m="${d}" data-k="status">
+        ${['予定','持込済','精米済','中止'].map(x=>`<option ${st===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div style="align-self:end"><button class="btn sub full" data-mmove="${d}">📅 精米日を変更</button></div></div>
+      <div class="btnrow" style="grid-template-columns:1fr"><button class="btn ${v.dirty?'':'sub'}" data-msave="${d}" ${v.dirty?'':'disabled'}>保存</button></div>
+    </details>
+  </div>`;
+}
 function rMill(){
   const el = $('#t-mill');
   if(!D){ el.innerHTML = noData(); return; }
@@ -1124,67 +1224,7 @@ function rMill(){
   ${hullCardHtml()}
   ${bagCardHtml()}
   <h2>精米日ごとの袋数</h2>
-  <div class="list">${D.milling.map(m => {
-    const v = millView(m);
-    const past = m.date < td;
-    const rest = v.expect - v.kg;
-    const sp = (k,l) => `<div><label class="f">${l}</label>${stepper('M.'+m.date+'.'+k, v[k])}</div>`;
-    return `<div class="card ${past||v.status==='精米済'||v.status==='中止'?'past':''}" id="mill-${m.date}">
-      <div class="row between"><div><b>${md(m.date)}</b> <span class="badge">${period(m.date)}</span>
-        <div class="mute">持ち込み ${md(v.bring)}${v.pickup?`・受取 ${esc(v.pickup)}`:''}${v.lot?`・玄米 ${esc(v.lot)} ${gradeBadge(v.grade)}`:''}</div></div>
-        <div style="text-align:right"><div class="big ${v.base?(v.short?'warn':'okc'):''}">${v.base}kg</div>
-        <div class="mute" style="font-size:11px">${v.genKg?'玄米で判定':'袋詰め量で判定'}</div>
-        ${v.short?`<div class="warn" style="font-size:12px">あと${minKg()-v.base}kg</div>`:''}</div></div>
-      <div class="millgrid" style="margin-top:4px">
-        ${sp('gen','玄米（'+ST('玄米袋kg')+'kg袋）')}${sp('genx','玄米の端数（kg）')}
-        ${sp('b5k','米袋 5kg')}${sp('b5m','無地袋 5kg')}
-        ${sp('b2k','米袋 2kg')}${sp('b2m','無地袋 2kg')}
-      </div>
-      <div class="calc">袋詰め：5kg×${v.b5}・2kg×${v.b2} ＝ <b>${v.kg}kg</b>
-        ${v.genKg?`<br>玄米 ${v.gen?`${ST('玄米袋kg')}kg×${v.gen}袋`:''}${v.gen&&v.genx?'＋':''}${v.genx?`端数${v.genx}kg`:''} ＝ ${v.genKg}kg → 精米後 約${v.expect}kg（${pct(1-Number(ST('歩留まり')))}%減・歩留まり${pct(ST('歩留まり'))}%）
-          <br>${rest>=0?`余り 約${rest}kg（無地袋2kgへ）`:`<span class="warn">袋詰めが見込みより${-rest}kg多い</span>`}`:''}</div>
-      ${v.status === '精米済' ? `<div class="act">
-        <div class="row between"><b>精米の実績</b><span class="mute" style="font-size:12px">依頼と違う所だけ直す</span></div>
-        <div class="millgrid" style="margin-top:4px">
-          ${sp('a5k','米袋 5kg')}${sp('a5m','無地袋 5kg')}
-          ${sp('a2k','米袋 2kg')}${sp('a2m','無地袋 2kg')}
-          ${sp('arem','残った端数（kg）')}<div></div>
-        </div>
-        <div class="calc">実績：5kg×${v.a5k+v.a5m}・2kg×${v.a2k+v.a2m} ＝ <b>${(v.a5k+v.a5m)*price('5kg').kg + (v.a2k+v.a2m)*price('2kg').kg}kg</b>${v.arem?`＋余り${v.arem}kg`:''}
-          <br>${!v.hasAct ? '<span class="warn">まだ保存されていません（依頼の数を表示中）</span>'
-            : v.diff.length ? '依頼との差：' + v.diff.map(x => `${x.name} <b class="${x.d<0?'warn':'okc'}">${x.d>0?'+':''}${x.d}袋</b>`).join('／')
-            : '<span class="okc">依頼どおり</span>'}</div></div>` : ''}
-      <div class="act">
-        <div class="row between"><b>予備の袋（依頼数に足して渡す）</b>
-          <button class="btn sm ghost" data-spare="${m.date}">予備を＋${Number(ST('袋の予備枚数'))||0}にする</button></div>
-        <div class="millgrid" style="margin-top:4px">
-          ${sp('s5k','米袋 5kg')}${sp('s5m','無地袋 5kg')}
-          ${sp('s2k','米袋 2kg')}${sp('s2m','無地袋 2kg')}
-        </div>
-        <div class="calc">渡す袋：${[['米袋5kg',v.b5k,v.s5k],['無地袋5kg',v.b5m,v.s5m],['米袋2kg',v.b2k,v.s2k],['無地袋2kg',v.b2m,v.s2m]]
-          .filter(x => x[1] + x[2] > 0).map(x => `${x[0]} <b>${x[1]+x[2]}枚</b>${x[2]?`（予備${x[2]}）`:''}`).join('／') || 'なし'}</div>
-      </div>
-      ${hulls().length ? `<label class="f">使う玄米</label><select data-m="${m.date}" data-k="lot">
-        <option value="">（選ばない）</option>
-        ${hulls().map(h => `<option value="${esc(h.id)}" ${v.lot===h.id?'selected':''}>${esc(h.id)}・${md(h.date)}・${esc(h.grade)}・${hullKg(h)}kg</option>`).join('')}</select>` : ''}
-      <div class="grid2">
-        <div><label class="f">持込日</label><input type="date" data-m="${m.date}" data-k="bring" value="${esc(v.bring)}"></div>
-        <div><label class="f">受取予定</label><input type="text" data-m="${m.date}" data-k="pickup" value="${esc(v.pickup)}" placeholder="例：午後"></div>
-      </div>
-      ${v.fee ? `<div class="mute" style="margin-top:6px">精米代の目安：玄米${v.genKg}kg × ${Number(ST('精米単価'))}円 ＝ <b>${yen(v.fee)}</b>（袋の料金は別）</div>` : ''}
-      <div class="grid2">
-        <div><label class="f">状態</label><select data-m="${m.date}" data-k="status">
-          ${['予定','持込済','精米済','中止'].map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label class="f">支払額（円）</label><input type="number" inputmode="numeric" data-m="${m.date}" data-k="pay" value="${esc(v.pay)}" placeholder="${v.fee||''}"></div>
-      </div>
-      <label class="f">備考</label><input type="text" data-m="${m.date}" data-k="note" value="${esc(v.note)}">
-      <div class="btnrow">
-        <button class="btn ${v.dirty?'':'sub'}" data-msave="${m.date}" ${v.dirty?'':'disabled'}>保存</button>
-        <button class="btn sub" data-preq="${m.date}">🖨 依頼書</button>
-        <button class="btn sub" data-plbl="${m.date}">🏷 シール</button>
-      </div>
-      <button class="btn sm ghost" data-mmove="${m.date}" style="margin-top:8px">📅 精米日を変更</button>
-    </div>`;}).join('')}</div>
+  <div class="list">${D.milling.map(m => millCardHtml(m, td)).join('')}</div>
   <h2>精米日を追加</h2>
   <div class="card row"><input type="date" id="millNew"><button class="btn" id="millAdd">追加</button></div>`;
 }
@@ -1259,6 +1299,22 @@ function calTap(ds){
   api('saveMilling', { date:ds, status:'予定' }).then(() => { toast(md(ds) + ' を追加しました'); load(); }).catch(err => toast(err.message));
 }
 
+/** 段の進行ボタン：持ち込んだ → 持込済で保存／精米が終わった → 精米済にして実績の欄を開く */
+async function millGo(d, what){
+  const v = millView(D.milling.find(x => x.date === d));
+  M[d] = M[d] || {};
+  if(what === 'bring'){
+    const inp = document.querySelector(`[data-m="${d}"][data-k="bring"]`);
+    M[d].status = '持込済'; M[d].bring = (inp && inp.value) || today();
+    MS[d] = 'act'; await saveMill(d); return;
+  }
+  if(what === 'done'){
+    M[d].status = '精米済';
+    if(!v.hasAct) Object.assign(M[d], { a5k:v.b5k, a5m:v.b5m, a2k:v.b2k, a2m:v.b2m });
+    MS[d] = 'act'; rMill(); enableSave(d);
+    toast('実際の数を確かめて「実績を保存」を押してください');
+  }
+}
 /** 精米日を別の日に移す（精米所の都合でずれたとき）。入力中の内容も一緒に保存 */
 async function moveMill(date){
   const m = D.milling.find(x => x.date === date); if(!m) return;
@@ -1713,6 +1769,9 @@ document.addEventListener('click', e => {
     rMill(); return;
   }
   if(b.dataset.mmove){ moveMill(b.dataset.mmove); return; }
+  if(b.dataset.mstep){ const [d, k] = b.dataset.mstep.split('|'); const v = millView(D.milling.find(x => x.date === d));
+    MS[d] = millStep(v) === k ? '' : k; rMill(); const c = document.getElementById('mill-' + d); if(c) c.scrollIntoView({ block:'start' }); return; }
+  if(b.dataset.mgo){ millGo(...b.dataset.mgo.split('|')); return; }
   if(b.id === 'hullOpen'){ H.open = true; rMill(); return; }
   if(b.id === 'hullCancel'){ H.open = false; rMill(); return; }
   if(b.id === 'hullAdd'){ addHull(); return; }
