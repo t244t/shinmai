@@ -313,7 +313,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/29 CSVの金額・社割';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/29 CSVの金額・社割（取り込み直し対応）';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -887,9 +887,10 @@ function rShop(){
   <h2>${esc(S.store)} の最近の記録</h2>
   <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
       <div><span class="badge ${l.kind==='販売'?'g':l.kind==='配布'||l.kind==='移動入'?'b':'a'}">${esc(l.kind)}</span>
-        ${esc(l.size)} × ${l.qty}${/^移動/.test(l.kind) && l.note ? ` <span class="mute">${esc(l.note)}</span>` : ''}　<span class="mute">${md(l.date)}${l.by?'・'+esc(l.by):''}</span>
+        ${esc(l.size)} × ${l.qty}${/^移動/.test(l.kind) && l.note ? ` <span class="mute">${esc(l.note)}</span>` : ''}${l.kind==='販売' ? ` <span class="mute">${yen(logYen(l))}</span>` : ''}${l.ptype==='社割' ? ' <span class="badge a">社割</span>' : ''}　<span class="mute">${md(l.date)}${l.by?'・'+esc(l.by):''}</span>
         ${l.pending?'<span class="badge a">未送信</span>':''}</div>
-      <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending?1:0}">取消</button></div>`).join('')
+      <div class="row" style="gap:4px">${l.kind==='販売' && !l.pending ? `<button class="btn sm ghost" data-logfix="${esc(l.clientId)}">金額</button>` : ''}
+      <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending?1:0}">取消</button></div></div>`).join('')
     : '<div class="card mute">記録はまだありません</div>'}</div>`;
 }
 
@@ -1185,16 +1186,31 @@ async function csvLoadFile(file){
 function csvImport(){
   const { ok } = csvBuild();
   if(!ok.length) return;
-  const have = new Set(allLogs().map(l => l.clientId));
-  const add = ok.filter(x => !have.has(x.clientId));
+  const byId = {}; allLogs().forEach(l => byId[l.clientId] = l);
+  const add = ok.filter(x => !byId[x.clientId]);
+  // 取り込み済みで金額・社割が入っていない記録は、送って埋める（GAS側で空の所だけ更新）
+  const fill = ok.filter(x => { const l = byId[x.clientId]; return l && !l.pending &&
+    ((x.amount != null && (l.amount == null || l.amount === '')) || (x.ptype && !l.ptype)); });
   csvSaveMap();
-  if(!add.length){ toast('すべて取り込み済みです'); return; }
-  setQ(Q.concat(add));
-  toast(`${add.length}件を記録しました（${ok.length - add.length}件は取り込み済み）`);
+  if(!add.length && !fill.length){ toast('すべて取り込み済みです'); return; }
+  setQ(Q.concat(add, fill));
+  toast(`${add.length}件を記録${fill.length ? `・${fill.length}件に金額や社割を追加` : ''}しました`);
   Object.assign(CSV, { file:'', rows:[] });
   rShop(); flush();
 }
 
+/** 販売の記録の金額・社割を手で直す（CSVが手元にないとき） */
+async function fixLog(id){
+  const l = (D.logs || []).find(x => x.clientId === id); if(!l) return;
+  const staff = confirm(`${l.store} ${l.size}×${l.qty}（${md(l.date)}）\n社員（社割）の販売ですか？\nOK＝社割／キャンセル＝通常`);
+  const p = price(l.size), def = l.qty * (staff ? (p.staff || p.inc) : p.inc);
+  const v = prompt('実際の金額（円）を入れてください', String(l.amount != null && l.amount !== '' ? l.amount : def));
+  if(v === null) return;
+  const amount = Number(String(v).normalize('NFKC').replace(/[,，\s¥円]/g, ''));
+  if(isNaN(amount) || amount < 0) return toast('金額を数字で入れてください');
+  try{ await api('updateShopLog', { clientId:id, amount, ptype: staff ? '社割' : '' }); toast('直しました'); await load(); }
+  catch(err){ toast(err.message + '（GASの更新が必要かもしれません）'); }
+}
 function submitShop(){
   if(!S.store) return toast('店舗を選んでください');
   if(S.b5 + S.b2 === 0) return toast('数量を入力してください');
@@ -1914,6 +1930,7 @@ document.addEventListener('click', e => {
   if(b.dataset.sto){ S.to = b.dataset.sto; rShop(); return; }
   if(b.id === 'shopSubmit'){ submitShop(); return; }
   if(b.id === 'csvImport'){ csvImport(); return; }
+  if(b.dataset.logfix){ fixLog(b.dataset.logfix); return; }
   if(b.id === 'shipSave'){ shipSave(); return; }
   if(b.id === 'shipRetry'){ shipLoad(null, true); return; }
   if(b.id === 'shipClear'){ Object.assign(SHIP, { data:null, counts:{}, err:'' }); shipRefresh(); return; }

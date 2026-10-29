@@ -112,6 +112,7 @@ function doGet(e) {
     else if (a === 'addReservation') out = locked_(() => addReservation_(JSON.parse(p.data)));
     else if (a === 'updateReservation') out = locked_(() => updateReservation_(p));
     else if (a === 'addShopLogs') out = locked_(() => addShopLogs_(JSON.parse(p.items)));
+    else if (a === 'updateShopLog') out = locked_(() => updateShopLog_(p));
     else if (a === 'deleteShopLog') out = locked_(() => deleteShopLog_(p.clientId));
     else if (a === 'saveMilling') out = locked_(() => saveMilling_(p));
     else if (a === 'addBagLog') out = locked_(() => addBagLog_(JSON.parse(p.data)));
@@ -471,6 +472,17 @@ function addShopLogs_(items) {
   });
   appendRows_(sh, arrs);
   return { ok: true, added: arrs.length, updated: updated, done: done };
+}
+
+function updateShopLog_(p) {
+  const sh = sheet_('店舗実績');
+  const r = rows_(sh).find(x => String(x['受付ID']) === String(p.clientId));
+  if (!r) throw new Error('記録が見つかりません');
+  const o = {};
+  if (p.amount !== undefined) o['金額'] = p.amount === '' ? '' : n_(p.amount);
+  if (p.ptype !== undefined) o['価格区分'] = p.ptype;
+  writeRow_(sh, r._row, o);
+  return { ok: true };
 }
 
 function deleteShopLog_(clientId) {
