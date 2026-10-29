@@ -11,8 +11,8 @@ const HEAD = {
   '価格マスタ': ['規格', '内容量kg', '税別', '税込', '社割税込', '予約価格'],
   '店舗マスタ': ['店舗ID', '店舗名', '区分', '有効'],
   '予約':     ['予約ID', '受付日', '受付店舗', 'お名前', '連絡先', '5kg袋数', '2kg袋数', '金額',
-               '受取予定日', '受取状況', '受取日', '備考', '登録日時', '受付ID'],
-  '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時'],
+               '受取予定日', '受取状況', '受取日', '備考', '登録日時', '受付ID', '価格区分'],
+  '店舗実績': ['日付', '店舗', '規格', '区分', '数量', '入力者', '備考', '受付ID', '登録日時', '金額', '価格区分'],
   '精米記録': ['精米日', '曜日', '時期', '持込日', '5kg袋数', '2kg袋数', '精米量kg', '90kg判定',
                '支払額', '状態', '備考', '玄米袋数', '米袋5kg', '無地袋5kg', '米袋2kg', '無地袋2kg', '玄米端数kg',
                '実績米袋5kg', '実績無地袋5kg', '実績米袋2kg', '実績無地袋2kg', '実績余りkg',
@@ -351,12 +351,13 @@ function getAll_() {
     id: String(r['予約ID']), date: d_(r['受付日']), store: String(r['受付店舗']),
     name: String(r['お名前']), tel: String(r['連絡先']), b5: n_(r['5kg袋数']), b2: n_(r['2kg袋数']),
     amount: n_(r['金額']), pickup: d_(r['受取予定日']), status: String(r['受取状況'] || '未'),
-    pickedAt: d_(r['受取日']), note: String(r['備考']), createdAt: dt_(r['登録日時']),
+    pickedAt: d_(r['受取日']), note: String(r['備考']), createdAt: dt_(r['登録日時']), ptype: String(r['価格区分'] || ''),
   }));
 
   const logs = rows_(sheet_('店舗実績')).map(r => ({
     date: d_(r['日付']), store: String(r['店舗']), size: String(r['規格']), kind: String(r['区分']),
     qty: n_(r['数量']), by: String(r['入力者']), note: String(r['備考']), clientId: String(r['受付ID']),
+    amount: r['金額'] === '' || r['金額'] === undefined ? null : n_(r['金額']), ptype: String(r['価格区分'] || ''),
   }));
 
   const milling = rows_(sheet_('精米記録')).map(r => {
@@ -410,7 +411,10 @@ function addReservation_(d) {
   if (b5 + b2 === 0) throw new Error('袋数を入力してください');
 
   const pr = {}; prices_().forEach(p => pr[p.size] = p);
-  const amount = b5 * (pr['5kg'] ? pr['5kg'].rsv : 0) + b2 * (pr['2kg'] ? pr['2kg'].rsv : 0);
+  // 社員の予約は社割価格、それ以外は予約価格
+  const staff = d.staff === true || d.staff === 'true' || d.staff === '1';
+  const pk = staff ? 'staff' : 'rsv';
+  const amount = b5 * (pr['5kg'] ? pr['5kg'][pk] : 0) + b2 * (pr['2kg'] ? pr['2kg'][pk] : 0);
 
   let max = 0;
   rows.forEach(r => { const m = String(r['予約ID']).match(/^Y(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
@@ -419,7 +423,7 @@ function addReservation_(d) {
   appendRows_(sh, [toArr_(sh, {
     '予約ID': id, '受付日': todayStr_(), '受付店舗': d.store || '', 'お名前': String(d.name).trim(),
     '連絡先': d.tel ? "'" + d.tel : '', '5kg袋数': b5, '2kg袋数': b2, '金額': amount,
-    '受取予定日': d.pickup || '', '受取状況': '未', '備考': d.note || '',
+    '受取予定日': d.pickup || '', '受取状況': '未', '備考': d.note || '', '価格区分': staff ? '社割' : '',
     '登録日時': nowStr_(), '受付ID': d.clientId || '',
   })]);
   return { ok: true, id: id, amount: amount };
@@ -440,21 +444,33 @@ function updateReservation_(p) {
 function addShopLogs_(items) {
   const sh = sheet_('店舗実績');
   const seen = {};
-  rows_(sh).forEach(r => { if (r['受付ID']) seen[String(r['受付ID'])] = true; });
+  rows_(sh).forEach(r => { if (r['受付ID']) seen[String(r['受付ID'])] = r; });
   const arrs = [], done = [];
+  let updated = 0;
   items.forEach(it => {
     done.push(it.clientId);
-    if (it.clientId && seen[it.clientId]) return;
+    if (it.clientId && seen[it.clientId]) {
+      // 取り込み済みの行：金額・価格区分が空なら埋める（同じCSVを取り込み直したとき）
+      const r = seen[it.clientId];
+      if (r !== true && r._row) {
+        const o = {};
+        if (it.amount !== undefined && it.amount !== null && it.amount !== '' && (r['金額'] === '' || r['金額'] === undefined)) o['金額'] = n_(it.amount);
+        if (it.ptype && !r['価格区分']) o['価格区分'] = it.ptype;
+        if (Object.keys(o).length) { writeRow_(sh, r._row, o); updated++; }
+      }
+      return;
+    }
     if (['配布', '販売', '返品', '移動出', '移動入'].indexOf(it.kind) < 0) return;
     arrs.push(toArr_(sh, {
       '日付': it.date || todayStr_(), '店舗': it.store, '規格': it.size, '区分': it.kind,
       '数量': Math.floor(n_(it.qty)), '入力者': it.by || '', '備考': it.note || '',
       '受付ID': it.clientId || '', '登録日時': nowStr_(),
+      '金額': it.amount === undefined || it.amount === null || it.amount === '' ? '' : n_(it.amount), '価格区分': it.ptype || '',
     }));
     if (it.clientId) seen[it.clientId] = true;
   });
   appendRows_(sh, arrs);
-  return { ok: true, added: arrs.length, done: done };
+  return { ok: true, added: arrs.length, updated: updated, done: done };
 }
 
 function deleteShopLog_(clientId) {

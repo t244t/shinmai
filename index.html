@@ -178,6 +178,7 @@ a{color:var(--blue)}
 .dr th,.dr td{border:.25mm solid #000;padding:1.2mm 1mm;text-align:center;font-size:3.4mm;color:#000;font-weight:400}
 .dr th{background:#eee;font-weight:600;font-size:3mm}
 .dr td.l{text-align:left;padding-left:2mm}
+.dr td.l small{font-size:2.6mm}
 .dr td.r{text-align:right;padding-right:2mm}
 .dr td.neg{font-weight:700;text-decoration:underline}
 .dr tr.tt td{border-top:.7mm solid #000;font-weight:700}
@@ -312,7 +313,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/28 日報の印刷';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '10/29 CSVの金額・社割';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -358,7 +359,7 @@ function api(action, params={}, timeout=30000){
 let D = lsJ(K.cache, null);        // サーバーの全データ
 let Q = lsJ(K.queue, []);          // 未送信の店舗実績
 let tab = lsGet(K.tab) || 'home';
-const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:'', sending:false }; // 予約フォーム
+const F = { store:'', name:'', tel:'', b5:0, b2:0, pickup:'', note:'', staff:false, clientId:'', sending:false }; // 予約フォーム
 let rsvFilter = '未', rsvQuery = '';
 const S = { to:'', store: lsGet(K.store)||'', kind:'販売', date: today(), b5:0, b2:0, by: lsGet(K.by)||'', note:'' }; // 店舗入力
 const M = {};                      // 精米の編集中データ { date: {gen,b5k,b5m,b2k,b2m,pay,status,note} }
@@ -417,13 +418,16 @@ function daySum(ds){
   const rOut = rs.filter(r => r.status === '済' && r.pickedAt === ds);         // その日に受け取られた予約
   const sum = (a, k) => a.reduce((x, r) => x + (Number(r[k]) || 0), 0);
   const shops = {};
-  allLogs().filter(l => l.date === ds && (l.kind === '販売' || l.kind === '返品')).forEach(l => {
-    const x = shops[l.store] = shops[l.store] || { b5:0, b2:0 };
-    const q = (Number(l.qty) || 0) * (l.kind === '返品' ? 0 : 1);           // 販売だけ数える
+  allLogs().filter(l => l.date === ds && l.kind === '販売').forEach(l => {
+    const x = shops[l.store] = shops[l.store] || { b5:0, b2:0, yen:0, staff:0, plain:0 };
+    const q = Number(l.qty) || 0;
     if(l.size === '5kg') x.b5 += q; else if(l.size === '2kg') x.b2 += q;
+    x.yen += logYen(l);
+    if(l.ptype === '社割') x.staff += q;
+    x.plain += q * price(l.size).inc;                                           // 通常価格だった場合の金額
   });
   const rows = Object.keys(shops).map(name => { const x = shops[name];
-    return { name, b5:x.b5, b2:x.b2, yen: x.b5 * price('5kg').inc + x.b2 * price('2kg').inc }; }).filter(r => r.b5 + r.b2 > 0)
+    return { name, b5:x.b5, b2:x.b2, yen: x.yen, staff: x.staff, disc: x.plain - x.yen }; }).filter(r => r.b5 + r.b2 > 0)
     .sort((a, b) => b.yen - a.yen);
   return {
     rin: { n:rIn.length, b5:sum(rIn,'b5'), b2:sum(rIn,'b2'), yen:sum(rIn,'amount') },
@@ -441,11 +445,11 @@ function dayHtml(){
       <tr><td>予約の受付</td><td>${x.rin.n}</td><td>${x.rin.b5}</td><td>${x.rin.b2}</td><td>${yen(x.rin.yen)}</td></tr>
       <tr><td>予約の受取</td><td>${x.rout.n}</td><td>${x.rout.b5}</td><td>${x.rout.b2}</td><td>${yen(x.rout.yen)}</td></tr>
       <tr><th colspan="5" style="text-align:left">店舗の販売</th></tr>
-      ${x.shops.length ? x.shops.map(r => `<tr><td>${esc(r.name)}</td><td></td><td>${r.b5}</td><td>${r.b2}</td><td>${yen(r.yen)}</td></tr>`).join('')
+      ${x.shops.length ? x.shops.map(r => `<tr><td>${esc(r.name)}${r.staff?`<div class="hold">うち社割 ${r.staff}袋</div>`:r.disc>0?'<div class="hold">割引あり？</div>':''}</td><td></td><td>${r.b5}</td><td>${r.b2}</td><td>${yen(r.yen)}</td></tr>`).join('')
         : '<tr><td colspan="5" class="mute">この日の販売の記録はありません</td></tr>'}
       <tr class="tot"><td><b>店舗 計</b></td><td></td><td><b>${x.sb5}</b></td><td><b>${x.sb2}</b></td><td><b>${yen(x.syen)}</b></td></tr>
     </table></div>
-    <div class="mute" style="font-size:12px;margin-top:6px">予約の金額は予約価格、店舗の販売は税込価格で計算。販売は売上CSV・手入力の「販売」から。予約の受け取りはレジを通るので店舗の販売にも含まれます（予約の受取と足さないでください）。</div>
+    <div class="mute" style="font-size:12px;margin-top:6px">予約の金額は予約価格（社員は社割価格）。店舗の販売の金額は売上CSVの金額（ない記録は税込価格で計算）。販売は売上CSV・手入力の「販売」から。予約の受け取りはレジを通るので店舗の販売にも含まれます（予約の受取と足さないでください）。</div>
     <button class="btn full" data-dayprint="${ds}" style="margin-top:8px">🖨 この日の日報を印刷</button>
     <button class="btn sub full" id="dayList" style="margin-top:8px">${DAY.list ? '14日分の一覧を閉じる' : '14日分を一覧で見る'}</button>
     ${DAY.list ? dayListHtml(ds) : ''}
@@ -470,6 +474,12 @@ function allLogs(){
   Q.forEach(q => logs.push(Object.assign({ pending:true }, q)));
   return logs;
 }
+/** 販売の記録1件の金額：CSVの金額があればそれ、なければ 数量×税込（社割なら社割価格） */
+const STAFF_RE = /社員|社割|従業員|スタッフ/;
+function logYen(l){
+  if(l.amount !== null && l.amount !== undefined && l.amount !== '' && !isNaN(l.amount)) return Number(l.amount);
+  const p = price(l.size); return (Number(l.qty) || 0) * (l.ptype === '社割' ? (p.staff || p.inc) : p.inc);
+}
 /** その日の終わりに取り置きだった予約（受付済み・その日までに受け取られていない） */
 function holdsAt(ds){
   return ((D && D.reservations) || []).filter(r => r.status !== 'キャンセル' && r.date && r.date <= ds
@@ -481,8 +491,10 @@ function stockTable(asOf){
   const t = {};
   const blank = () => ({ 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0}, 移動入:{'5kg':0,'2kg':0}, 移動出:{'5kg':0,'2kg':0} });
   activeStores().forEach(s => t[s.name] = blank());
+  const yenBy = {};
   allLogs().filter(l => !asOf || (l.date && l.date <= asOf)).forEach(l => {
     if(!t[l.store]) t[l.store] = blank();
+    if(l.kind === '販売') yenBy[l.store] = (yenBy[l.store] || 0) + logYen(l);
     if(t[l.store][l.kind] && l.size in t[l.store][l.kind]) t[l.store][l.kind][l.size] += Number(l.qty)||0;
   });
   return Object.keys(t).map(name => {
@@ -493,7 +505,7 @@ function stockTable(asOf){
     const r2 = x.配布['2kg'] + mv('2kg') - x.販売['2kg'] - x.返品['2kg'];
     const dist = x.配布['5kg'] + x.配布['2kg'] + mv('5kg') + mv('2kg');      // 店舗に入った数（移動を含む）
     const sold = x.販売['5kg'] + x.販売['2kg'];
-    const sales = x.販売['5kg']*price('5kg').inc + x.販売['2kg']*price('2kg').inc;
+    const sales = yenBy[name] || 0;   // CSVの金額（社割・値引きを含む実際の売上）
     // 予約の取り置き：その店舗で受け付けた未受取の予約（受け取りはレジを通るので、売上CSVで販売になったら残りから減る）
     const hold = (asOf ? holdsAt(asOf) : rsvOpen()).filter(r => r.store === name);
     const h5 = hold.reduce((a, r) => a + (Number(r.b5)||0), 0), h2 = hold.reduce((a, r) => a + (Number(r.b2)||0), 0);
@@ -784,7 +796,8 @@ function rRsv(){
   const el = $('#t-rsv');
   if(!D){ el.innerHTML = noData(); return; }
   if(!F.store && activeStores()[0]) F.store = S.store || activeStores()[0].name;
-  const p5 = price('5kg').rsv, p2 = price('2kg').rsv;
+  const pk = F.staff ? 'staff' : 'rsv';
+  const p5 = price('5kg')[pk] || 0, p2 = price('2kg')[pk] || 0;
   const amt = F.b5*p5 + F.b2*p2;
   const list = D.reservations.filter(r => (rsvFilter==='すべて' || r.status===rsvFilter) &&
       (!rsvQuery || (r.name+r.tel+r.id).includes(rsvQuery)))
@@ -799,16 +812,17 @@ function rRsv(){
       <div><label class="f">5kg（${yen(p5)}）</label>${stepper('F.b5',F.b5)}</div>
       <div><label class="f">2kg（${yen(p2)}）</label>${stepper('F.b2',F.b2)}</div>
     </div>
+    <label class="row" style="margin-top:10px"><input type="checkbox" id="fStaff" ${F.staff?'checked':''}> 社員の予約（社割価格）</label>
     <label class="f">受取予定日</label><input type="date" data-f="pickup" value="${esc(F.pickup)}">
     <label class="f">備考</label><input type="text" data-f="note" value="${esc(F.note)}">
-    <div class="row between" style="margin:14px 0 10px"><span class="mute">予約価格（5%引き）</span><span class="big">${yen(amt)}</span></div>
+    <div class="row between" style="margin:14px 0 10px"><span class="mute">${F.staff ? '社割価格' : '予約価格（5%引き）'}</span><span class="big">${yen(amt)}</span></div>
     <button class="btn full" id="rsvSubmit" ${F.sending?'disabled':''}>${F.sending?'送信中…':'予約を登録'}</button>
   </div>
   <h2>予約一覧</h2>
   <div class="seg" style="margin-bottom:8px">${['未','済','キャンセル','すべて'].map(f=>`<button data-rf="${f}" class="${rsvFilter===f?'on':''}">${f==='未'?'未受取':f==='済'?'受取済':f}</button>`).join('')}</div>
   <input type="text" id="rsvQ" placeholder="名前・電話・予約IDで検索" value="${esc(rsvQuery)}" style="margin-bottom:10px">
   <div class="list">${list.length ? list.map(r=>`<div class="card ${r.status!=='未'?'done':''}">
-      <div class="row between"><b>${esc(r.name)}</b><span class="badge ${r.status==='済'?'g':r.status==='キャンセル'?'r':'b'}">${r.status==='未'?'未受取':r.status==='済'?'受取済':'キャンセル'}</span></div>
+      <div class="row between"><b>${esc(r.name)}${r.ptype==='社割'?' <span class="badge a">社割</span>':''}</b><span class="badge ${r.status==='済'?'g':r.status==='キャンセル'?'r':'b'}">${r.status==='未'?'未受取':r.status==='済'?'受取済':'キャンセル'}</span></div>
       <div class="mute">${esc(r.id)}・${esc(r.store)}${r.tel?`・<a href="tel:${esc(r.tel)}">${esc(r.tel)}</a>`:''}</div>
       <div class="row between" style="margin-top:4px"><span>${r.b5?`5kg×${r.b5} `:''}${r.b2?`2kg×${r.b2}`:''}　${yen(r.amount)}</span>
         <span class="mute">受取 ${r.pickup?md(r.pickup):'未定'}</span></div>
@@ -827,9 +841,9 @@ async function submitRsv(){
   F.sending = true; rRsv();
   try{
     const res = await api('addReservation', { data: JSON.stringify({
-      clientId:F.clientId, store:F.store, name:F.name, tel:F.tel, b5:F.b5, b2:F.b2, pickup:F.pickup, note:F.note }) });
+      clientId:F.clientId, store:F.store, name:F.name, tel:F.tel, b5:F.b5, b2:F.b2, pickup:F.pickup, note:F.note, staff:F.staff }) });
     toast('予約を登録しました（' + res.id + '）');
-    Object.assign(F, { name:'', tel:'', b5:0, b2:0, pickup:'', note:'', clientId:'' });
+    Object.assign(F, { name:'', tel:'', b5:0, b2:0, pickup:'', note:'', staff:false, clientId:'' });
     await load();
   }catch(e){ toast(e.message + '　もう一度押しても二重登録にはなりません'); }
   finally{ F.sending = false; if(tab==='rsv') rRsv(); }
@@ -959,6 +973,7 @@ function csvGuess(){
            item: first(find(/商品名|品名/), find(/商品|メニュー|item/i)),
            code: first(find(/商品コード|JAN|バーコード/i, /./)),
            qty: first(find(/売上点数|販売数量|数量/), find(/個数|点数|販売数|qty/i)),
+           amount: first(find(/売上金額|販売金額|税込金額|売上額/, /^(?!.*(単価|構成比|原価|税額)).*$/), find(/金額/, /^(?!.*(単価|構成比|原価|税額|合計)).*$/)),
            kind: find(/取引区分|区分|種別/) };
 }
 const col = (r, k) => CSV.map[k] !== '' && CSV.map[k] != null ? r[CSV.map[k]] : '';
@@ -984,8 +999,15 @@ function csvBuild(){
     let kind = '販売';
     if(qty < 0){ kind = '返品'; qty = -qty; }
     if(/返品|取消|返金|戻/.test(String(col(r, 'kind')))) kind = '返品';
+    // 金額（売上金額の列）と社員価格（商品名に「社員」など）
+    let amount = null;
+    if(CSV.map.amount !== '' && CSV.map.amount != null){
+      const a = Number(String(col(r, 'amount')).normalize('NFKC').replace(/[,，\s¥円]/g, ''));
+      if(!isNaN(a) && String(col(r, 'amount')).trim() !== '') amount = Math.abs(Math.round(a));
+    }
+    const ptype = STAFF_RE.test(nz(item)) ? '社割' : '';
     ok.push({ clientId: 'V' + hash36(date + '|' + line + '#' + seen[line]) + hash36(line),
-      date, store, size: sz.size, kind, qty: Math.round(qty), by: 'CSV', note: CSV.file });
+      date, store, size: sz.size, kind, qty: Math.round(qty), by: 'CSV', note: CSV.file + (ptype ? ' 社割' : ''), amount, ptype });
   });
   return { ok, skip, usedFallbackDate };
 }
@@ -998,7 +1020,8 @@ function csvCardHtml(){
     <option value="">${opt||'（なし）'}</option>${h.map((x,i)=>`<option value="${i}" ${String(m[k])===String(i)?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
   const { ok, skip, usedFallbackDate } = csvBuild();
   const sum = {};
-  ok.forEach(x => { const k = x.store; sum[k] = sum[k] || { '販売5kg':0,'販売2kg':0,'返品5kg':0,'返品2kg':0 }; sum[k][x.kind+x.size] += x.qty; });
+  ok.forEach(x => { const k = x.store; sum[k] = sum[k] || { '販売5kg':0,'販売2kg':0,'返品5kg':0,'返品2kg':0, yen:0, staff:0 }; sum[k][x.kind+x.size] += x.qty;
+    if(x.kind === '販売'){ sum[k].yen += logYen(x); if(x.ptype) sum[k].staff += x.qty; } });
   const why = {}; skip.forEach(x => why[x.why] = (why[x.why]||0) + 1);
   // CSVに出てくる店舗名と割り当て
   let storeRows = '';
@@ -1015,18 +1038,18 @@ function csvCardHtml(){
   return `<div class="row between"><b>${esc(CSV.file)}</b><button class="btn sm ghost" id="csvClear">やめる</button></div>
     <div class="mute">${CSV.rows.length}行</div>
     <label class="row" style="margin-top:6px"><input type="checkbox" id="csvHeader" ${CSV.header?'checked':''}> 1行目は見出し</label>
-    <div class="grid2">${sel('item','商品名の列')}${sel('code','商品コードの列')}${sel('qty','数量の列','（なし＝1行1個）')}${sel('store','店舗の列','（なし＝下で選ぶ）')}
+    <div class="grid2">${sel('item','商品名の列')}${sel('code','商品コードの列')}${sel('qty','数量の列','（なし＝1行1個）')}${sel('amount','金額の列','（なし＝税込価格で計算）')}${sel('store','店舗の列','（なし＝下で選ぶ）')}
       ${sel('date','日付の列')}<div><label class="f">計上日（CSVに日付がないとき）</label><input type="date" id="csvDate" value="${esc(CSV.date)}"></div></div>
     ${usedFallbackDate ? `<div class="mute" style="font-size:12px;margin-top:4px">CSVの日付が使えないため、計上日 ${md(CSV.date)} で記録します。期間の集計CSVは、期間が重ならないように取り込んでください。</div>` : ''}
     ${m.store === '' || m.store == null ? `<label class="f">店舗</label><select id="csvFixedStore"><option value="">選んでください</option>
       ${activeStores().map(s=>`<option ${CSV.fixedStore===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
     <div class="grid2">${sel('kind','返品が分かる列（任意）')}
       <div><label class="f">商品名に含む文字</label><input type="text" id="csvKeyword" value="${esc(CSV.keyword)}" placeholder="例：米、元気つくし"></div></div>
-    <div class="mute" style="margin-top:4px;font-size:12px">商品コードが設定のJAN（5kg・2kg）と一致する行、または商品名に「5kg」「2kg」がある行を新米として数えます。数量がマイナスの行は返品です。</div>
+    <div class="mute" style="margin-top:4px;font-size:12px">商品コードが設定のJAN（5kg・2kg）と一致する行、または商品名に「5kg」「2kg」がある行を新米として数えます。数量がマイナスの行は返品です。商品名に「社員」「社割」がある行は社割として記録します。取り込み済みのCSVをもう一度取り込むと、金額の入っていない記録に金額を足します。</div>
     ${storeRows}
     <h2 style="margin-top:14px">取り込み内容</h2>
-    ${ok.length ? `<div class="scroll"><table><tr><th>店舗</th><th>販売 5kg</th><th>販売 2kg</th><th>返品 5kg</th><th>返品 2kg</th></tr>
-      ${Object.keys(sum).map(k=>`<tr><td>${esc(k)}</td><td>${sum[k]['販売5kg']}</td><td>${sum[k]['販売2kg']}</td><td>${sum[k]['返品5kg']}</td><td>${sum[k]['返品2kg']}</td></tr>`).join('')}
+    ${ok.length ? `<div class="scroll"><table><tr><th>店舗</th><th>販売 5kg</th><th>販売 2kg</th><th>売上</th><th>返品 5kg</th><th>返品 2kg</th></tr>
+      ${Object.keys(sum).map(k=>`<tr><td>${esc(k)}${sum[k].staff?`<div class="hold">うち社割 ${sum[k].staff}袋</div>`:''}</td><td>${sum[k]['販売5kg']}</td><td>${sum[k]['販売2kg']}</td><td>${yen(sum[k].yen)}</td><td>${sum[k]['返品5kg']}</td><td>${sum[k]['返品2kg']}</td></tr>`).join('')}
       </table></div>` : `<div class="mute">${why['新米以外の商品'] === skip.length ? 'このCSVには新米（5kg・2kg）の売上がまだありません。' : '取り込める行がまだありません。列や店舗の割り当てを確認してください。'}</div>`}
     ${skip.length ? `<details style="margin-top:8px"><summary class="mute">対象外 ${skip.length}行（${Object.keys(why).map(k=>k+' '+why[k]).join('・')}）</summary>
       <div class="mute" style="font-size:12px;margin-top:4px">${skip.slice(0,10).map(x=>`${x.i+1+(CSV.header?1:0)}行目：${esc(x.why)}　<span style="opacity:.7">${esc(x.line.slice(0,60))}</span>`).join('<br>')}</div></details>` : ''}
@@ -1578,18 +1601,18 @@ function dayReportHtml(ds){
     <h2>店舗別</h2>
     <table><tr><th rowspan="2">店舗</th><th colspan="3">この日の販売</th><th colspan="2">取り置き（予約）</th><th colspan="2">残り（日の終わり）</th><th colspan="2">うち店頭</th></tr>
       <tr><th>5kg</th><th>2kg</th><th>売上</th><th>5kg</th><th>2kg</th><th>5kg</th><th>2kg</th><th>5kg</th><th>2kg</th></tr>
-      ${rows.map(r => `<tr><td class="l">${esc(r.n)}</td><td>${z(r.o.b5)}</td><td>${z(r.o.b2)}</td><td class="r">${r.o.yen ? yen(r.o.yen) : ''}</td>
+      ${rows.map(r => `<tr><td class="l">${esc(r.n)}${r.o.staff?`<small>（うち社割${r.o.staff}）</small>`:''}</td><td>${z(r.o.b5)}</td><td>${z(r.o.b2)}</td><td class="r">${r.o.yen ? yen(r.o.yen) : ''}</td>
         <td>${z(r.s.h5)}</td><td>${z(r.s.h2)}</td><td>${r.s.r5}</td><td>${r.s.r2}</td><td class="${r.s.f5<0?'neg':''}">${r.s.f5}</td><td class="${r.s.f2<0?'neg':''}">${r.s.f2}</td></tr>`).join('')}
       <tr class="tt"><td class="l">合計</td><td>${tt(r => r.o.b5)}</td><td>${tt(r => r.o.b2)}</td><td class="r">${yen(tt(r => r.o.yen))}</td>
         <td>${tt(r => r.s.h5)}</td><td>${tt(r => r.s.h2)}</td><td>${tt(r => r.s.r5)}</td><td>${tt(r => r.s.r2)}</td><td>${tt(r => r.s.f5)}</td><td>${tt(r => r.s.f2)}</td></tr></table>
-    <div class="nt">販売は売上CSV・手入力の「販売」から（税込価格で計算）。取り置き＝その日の終わりに未受取の予約。店頭＝残り−取り置き（マイナスは予約分が未着）。</div>
+    <div class="nt">販売は売上CSV・手入力の「販売」から。売上はCSVの金額（社割・値引きを含む。金額のない記録は税込価格で計算）。取り置き＝その日の終わりに未受取の予約。店頭＝残り−取り置き（マイナスは予約分が未着）。</div>
     <h2>予約</h2>
     <table class="sm"><tr><th></th><th>件数</th><th>5kg</th><th>2kg</th><th>金額（予約価格）</th></tr>
       <tr><td class="l">この日の受付</td><td>${x.rin.n}</td><td>${x.rin.b5}</td><td>${x.rin.b2}</td><td class="r">${yen(x.rin.yen)}</td></tr>
       <tr><td class="l">この日の受取</td><td>${x.rout.n}</td><td>${x.rout.b5}</td><td>${x.rout.b2}</td><td class="r">${yen(x.rout.yen)}</td></tr></table>
     <h2>取り置きの内訳（${holds.length}件）</h2>
     ${holds.length ? `<table class="sm"><tr><th>店舗</th><th>予約ID</th><th>お名前</th><th>5kg</th><th>2kg</th><th>受取予定</th><th>受付日</th></tr>
-      ${holds.map(r => `<tr><td class="l">${esc(r.store||'')}</td><td>${esc(r.id)}</td><td class="l">${esc(r.name)}</td><td>${z(r.b5)}</td><td>${z(r.b2)}</td><td>${r.pickup?md(r.pickup):''}</td><td>${md(r.date)}</td></tr>`).join('')}</table>`
+      ${holds.map(r => `<tr><td class="l">${esc(r.store||'')}</td><td>${esc(r.id)}</td><td class="l">${esc(r.name)}${r.ptype==='社割'?'（社割）':''}</td><td>${z(r.b5)}</td><td>${z(r.b2)}</td><td>${r.pickup?md(r.pickup):''}</td><td>${md(r.date)}</td></tr>`).join('')}</table>`
       : '<div class="nt">取り置きはありません</div>'}
   </div>`;
 }
@@ -2024,6 +2047,7 @@ document.addEventListener('change', e => {
   if(i.dataset.bg && i.tagName === 'SELECT'){ BG[i.dataset.bg] = i.value; if(i.dataset.bg === 'kind') rMill(); return; }
   if(i.dataset.hid){ saveHull(i.dataset.hid, i.dataset.hk, i.value); return; }
   if(i.dataset.h && i.dataset.h === 'date'){ H.date = i.value; rMill(); return; }
+  if(i.id === 'fStaff'){ F.staff = i.checked; rRsv(); return; }
   if(i.id === 'shipFile'){ shipLoad(i.files && i.files[0]); return; }
   if(i.id === 'shipDate'){ SHIP.date = i.value; return; }
   if(i.id === 'shipRound'){ SHIP.round = Number(i.value) || 1; return; }
