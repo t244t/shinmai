@@ -892,6 +892,7 @@ function simHtml(){
   return `<div class="row between"><b>📊 移動と補充の試算</b><button class="btn sm ghost" id="simClose">閉じる</button></div>
   <div class="sim">
   <div class="sh">① 移動前の店舗別状況（今の記録）</div>
+  <div class="mute" style="font-size:12px">配布・販売・移動の記録からいつも自動で出ます（試算では変わりません）。記録した移動を取り消すと、ここも元に戻ります。</div>
   <div class="scroll"><table><tr><th>店舗</th><th>配布</th><th>販売</th><th>残5kg</th><th>残2kg</th><th>販売率</th><th>売上</th></tr>
     ${R.map(r => `<tr><td>${esc(r.name)}</td><td>${r.d5 + r.d2 + (r.mv||0)}</td><td>${r.s5 + r.s2}</td><td>${r.r5}</td><td>${r.r2}</td><td>${rate(r)}</td><td>${yen(r.sales)}</td></tr>`).join('')}
     <tr class="tot"><td>合計</td><td>${R.reduce((a,r)=>a+r.d5+r.d2+(r.mv||0),0)}</td><td>${R.reduce((a,r)=>a+r.s5+r.s2,0)}</td><td>${tot('r5')}</td><td>${tot('r2')}</td><td></td><td>${yen(tot('sales'))}</td></tr></table></div>
@@ -921,7 +922,7 @@ function simHtml(){
   <div class="mute" style="font-size:12px">5kg×${tot('add5')}袋・2kg×${tot('add2')}袋。玄米なら約${Math.ceil(tot('kg') / (Number(ST('歩留まり')) || 0.9))}kg（歩留まり${pct(ST('歩留まり'))}%）。○×を押すと補充の対象を切り替えます。</div>
   <div class="btnrow" style="grid-template-columns:1fr 1fr">
     <button class="btn" id="simRecord" ${c.ok && (c.out5 + c.out2) ? '' : 'disabled'}>この移動を記録</button>
-    <button class="btn sub" id="simReset">試算を空にする</button></div>
+    <button class="btn sub" id="simReset">②の移動を0に戻す</button></div>
   </div>`;
 }
 function simRecord(){
@@ -2032,7 +2033,7 @@ document.addEventListener('click', e => {
   if(b.dataset.logfix){ fixLog(b.dataset.logfix); return; }
   if(b.id === 'simOpen'){ SIM.open = true; rShop(); return; }
   if(b.id === 'simClose'){ SIM.open = false; rShop(); return; }
-  if(b.id === 'simReset'){ Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave(); rShop(); return; }
+  if(b.id === 'simReset'){ Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave(); rShop(); toast('②の移動を0に戻しました（①は記録のままです）'); return; }
   if(b.id === 'simRecord'){ simRecord(); return; }
   if(b.dataset.simon){ const n = b.dataset.simon, r = simCalc().rows.find(x => x.name === n); SIM.off[n] = !!(r && r.on); simSave(); rShop(); return; }
   if(b.dataset.sim){
