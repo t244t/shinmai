@@ -322,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '11/5 移動と補充の試算';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/5 移動と補充の試算（記録の取消）';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -891,6 +891,11 @@ function simHtml(){
   if(!SIM.staffStore) SIM.staffStore = stores[0] || '';
   return `<div class="row between"><b>📊 移動と補充の試算</b><button class="btn sm ghost" id="simClose">閉じる</button></div>
   <div class="sim">
+  ${(() => { const mv = allLogs().filter(l => l.kind === '移動出').sort((a, b) => (b.date + b.clientId) < (a.date + a.clientId) ? -1 : 1).slice(0, 20);
+    return mv.length ? `<details class="more" ${SIM.showMv ? 'open' : ''} id="simMvList"><summary>記録済みの店舗間の移動（${mv.length}件）— ①に入っています</summary>
+      <div class="mute" style="font-size:12px;margin:4px 0">試しに記録したものは「取消」で消すと、①が元に戻ります（出と入の2件が一緒に消えます）。</div>
+      ${mv.map(l => `<div class="row between" style="padding:4px 0;border-bottom:1px solid var(--line)"><span style="font-size:13px">${md(l.date)} ${esc(l.store)} ${esc(l.note || '')}　${esc(l.size)}×${l.qty}${l.pending ? ' <span class="badge a">未送信</span>' : ''}</span>
+        <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending ? 1 : 0}">取消</button></div>`).join('')}</details>` : ''; })()}
   <div class="sh">① 移動前の店舗別状況（今の記録）</div>
   <div class="mute" style="font-size:12px">配布・販売・移動の記録からいつも自動で出ます（試算では変わりません）。記録した移動を取り消すと、ここも元に戻ります。</div>
   <div class="scroll"><table><tr><th>店舗</th><th>配布</th><th>販売</th><th>残5kg</th><th>残2kg</th><th>販売率</th><th>売上</th></tr>
@@ -2046,6 +2051,7 @@ document.addEventListener('click', e => {
   if(b.id === 'shipRetry'){ shipLoad(null, true); return; }
   if(b.id === 'shipClear'){ Object.assign(SHIP, { data:null, counts:{}, err:'' }); shipRefresh(); return; }
   if(b.id === 'csvClear'){ Object.assign(CSV, { file:'', rows:[] }); csvRefresh(); return; }
+  if('dellog' in b.dataset && b.closest('#simMvList')) SIM.showMv = true;
   if('dellog' in b.dataset){ delLog(b.dataset.dellog, b.dataset.pending === '1'); return; }
   if(b.dataset.msave){ saveMill(b.dataset.msave); return; }
   if(b.dataset.spare){
