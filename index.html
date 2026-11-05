@@ -220,6 +220,15 @@ a{color:var(--blue)}
 .rq td{border:.25mm solid #000;height:12mm;padding:0 2mm;text-align:center;font-size:3.3mm}
 .rq table.gen{border:.6mm solid #000}
 .rq table.gen td{border:0;height:15mm}
+.sim .sh{font-weight:700;color:var(--green);margin:14px 0 4px;font-size:14px}
+.sim table td,.sim table th{white-space:nowrap;padding:6px 4px;font-size:13px}
+.sim [data-simon]{min-height:0;padding:2px 8px}
+.sim td.chg{background:#fff4d6;font-weight:700}
+.sim td.add{background:#fff4d6;font-weight:700}
+.sim tr.off td{color:#aaa}
+.mini{display:inline-flex;align-items:center;gap:4px}
+.mini button{width:28px;height:28px;border:1px solid var(--line);border-radius:6px;background:var(--green2);color:var(--green);font-weight:800;padding:0;cursor:pointer}
+.mini b{min-width:26px;text-align:center}
 .steps{margin-top:8px;display:flex;flex-direction:column;gap:6px}
 .stp{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 10px;font:inherit;color:inherit;cursor:pointer}
 .stp .no{flex:none;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--green2);color:var(--green);font-weight:800}
@@ -313,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '10/29 CSVの金額・社割（取り込み直し対応）';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/5 移動と補充の試算';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -850,6 +859,94 @@ async function submitRsv(){
 }
 
 /* --- 店舗 --- */
+/* ===== 移動と補充の試算（①移動前 → ②移動 → ③移動後 → ④補充と精米量） ===== */
+const SIMK = 'shinmai_sim_v1';
+const SIM = Object.assign({ open:false, mv:{}, staff5:0, staff2:0, staffStore:'', tgt5:3, tgt2:3, off:{}, hold:true }, lsJ(SIMK, {}));
+function simSave(){ const { open, ...x } = SIM; lsJS(SIMK, x); }
+function simMv(n, z){ return Number(((SIM.mv[n] || {})[z]) || 0); }
+function simCalc(){
+  const st = stockTable();
+  const rows = st.map(s => {
+    const m5 = simMv(s.name, 'd5'), m2 = simMv(s.name, 'd2');
+    const a5 = s.r5 + m5, a2 = s.r2 + m2;                          // 移動後の残り
+    const b5 = SIM.hold ? a5 - s.h5 : a5, b2 = SIM.hold ? a2 - s.h2 : a2;   // 補充の基準（取り置きを除く）
+    // 対象：自分で切り替えた店舗はその通り。まだなら、配布や移動の記録がある店舗だけ○
+    const on = s.name in SIM.off ? !SIM.off[s.name] : (s.d5 + s.d2 + Math.abs(s.mv || 0) + s.r5 + s.r2) > 0;
+    const add5 = on ? Math.max(0, Number(SIM.tgt5) - b5) : 0, add2 = on ? Math.max(0, Number(SIM.tgt2) - b2) : 0;
+    return Object.assign({}, s, { m5, m2, a5, a2, b5, b2, on, add5, add2, kg: add5 * price('5kg').kg + add2 * price('2kg').kg });
+  });
+  const sum = k => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  const out5 = rows.reduce((a, r) => a + Math.max(0, -r.m5), 0), in5 = rows.reduce((a, r) => a + Math.max(0, r.m5), 0) + Number(SIM.staff5);
+  const out2 = rows.reduce((a, r) => a + Math.max(0, -r.m2), 0), in2 = rows.reduce((a, r) => a + Math.max(0, r.m2), 0) + Number(SIM.staff2);
+  return { rows, sum, out5, in5, out2, in2, ok: out5 === in5 && out2 === in2 };
+}
+function mini(key, val){
+  return `<span class="mini"><button type="button" data-sim="${key}" data-d="-1">−</button><b class="${val>0?'okc':val<0?'warn':''}">${val>0?'+':''}${val}</b><button type="button" data-sim="${key}" data-d="1">＋</button></span>`;
+}
+function simHtml(){
+  if(!SIM.open) return `<button class="btn sub full" id="simOpen">📊 移動と補充の試算を開く</button>`;
+  const c = simCalc(), R = c.rows, rate = r => r.rate == null ? '-' : Math.round(r.rate * 100) + '%';
+  const tot = (k) => c.sum(k);
+  const stores = activeStores().map(s => s.name);
+  if(!SIM.staffStore) SIM.staffStore = stores[0] || '';
+  return `<div class="row between"><b>📊 移動と補充の試算</b><button class="btn sm ghost" id="simClose">閉じる</button></div>
+  <div class="sim">
+  <div class="sh">① 移動前の店舗別状況（今の記録）</div>
+  <div class="scroll"><table><tr><th>店舗</th><th>配布</th><th>販売</th><th>残5kg</th><th>残2kg</th><th>販売率</th><th>売上</th></tr>
+    ${R.map(r => `<tr><td>${esc(r.name)}</td><td>${r.d5 + r.d2 + (r.mv||0)}</td><td>${r.s5 + r.s2}</td><td>${r.r5}</td><td>${r.r2}</td><td>${rate(r)}</td><td>${yen(r.sales)}</td></tr>`).join('')}
+    <tr class="tot"><td>合計</td><td>${R.reduce((a,r)=>a+r.d5+r.d2+(r.mv||0),0)}</td><td>${R.reduce((a,r)=>a+r.s5+r.s2,0)}</td><td>${tot('r5')}</td><td>${tot('r2')}</td><td></td><td>${yen(tot('sales'))}</td></tr></table></div>
+
+  <div class="sh">② 移動（−＝回収、＋＝受け取り）</div>
+  <div class="scroll"><table><tr><th>店舗</th><th>5kg</th><th>2kg</th></tr>
+    ${R.map(r => `<tr><td>${esc(r.name)}</td><td>${mini(r.name+'|d5', r.m5)}</td><td>${mini(r.name+'|d2', r.m2)}</td></tr>`).join('')}
+    <tr><td>社員<div class="hold">レジ：<select id="simStaffStore" style="font-size:12px;padding:2px">${stores.map(n=>`<option ${SIM.staffStore===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div></td>
+      <td>${mini('staff5', Number(SIM.staff5))}</td><td>${mini('staff2', Number(SIM.staff2))}</td></tr></table></div>
+  <div class="${c.ok ? 'okc' : 'warn'}" style="margin-top:4px;font-size:13px">${c.ok ? (c.out5 + c.out2 ? `✓ 回収数と移動先が一致（5kg ${c.out5}袋・2kg ${c.out2}袋）` : '移動はまだ入っていません')
+    : `回収と移動先が合っていません（5kg 回収${c.out5}／移動先${c.in5}・2kg 回収${c.out2}／移動先${c.in2}）`}</div>
+
+  <div class="sh">③ 移動後の店舗別状況</div>
+  <div class="scroll"><table><tr><th>店舗</th><th>移動</th><th>残5kg</th><th>残2kg</th><th>取置</th></tr>
+    ${R.map(r => { const m = r.m5 + r.m2; return `<tr><td>${esc(r.name)}</td><td class="${m<0?'warn':m>0?'okc':''}">${m ? (m>0?'+':'') + m : '-'}</td><td class="${r.m5?'chg':''}">${r.a5}</td><td class="${r.m2?'chg':''}">${r.a2}</td><td>${r.h5 + r.h2 || ''}</td></tr>`; }).join('')}
+    <tr class="tot"><td>合計</td><td>${tot('m5') + tot('m2') || '-'}</td><td>${tot('a5')}</td><td>${tot('a2')}</td><td>${R.reduce((a,r)=>a+r.h5+r.h2,0) || ''}</td></tr></table></div>
+  ${Number(SIM.staff5) + Number(SIM.staff2) ? `<div class="mute" style="font-size:12px">社員分（5kg ${SIM.staff5}・2kg ${SIM.staff2}）は店舗の外へ出るので③の合計には入りません。記録するときは、社員がレジを通す店舗（${esc(SIM.staffStore)}）へ移動として入れ、売上CSVの「社員」の販売で減ります。</div>` : ''}
+
+  <div class="sh">④ 補充数と精米量（目標まで足りない分）</div>
+  <div class="grid2"><div><label class="f">目標 5kg（袋／店）</label>${stepper('SIMT.tgt5', SIM.tgt5)}</div><div><label class="f">目標 2kg（袋／店）</label>${stepper('SIMT.tgt2', SIM.tgt2)}</div></div>
+  <label class="row" style="margin-top:6px;font-size:13px"><input type="checkbox" id="simHold" ${SIM.hold?'checked':''}> 取り置き（予約）の分を除いて数える</label>
+  <div class="scroll" style="margin-top:6px"><table><tr><th>店舗</th><th>対象</th><th>今の残<br>5kg</th><th>今の残<br>2kg</th><th>追加<br>5kg</th><th>追加<br>2kg</th><th>精米量</th></tr>
+    ${R.map(r => `<tr class="${r.on?'':'off'}"><td>${esc(r.name)}</td><td><button class="btn sm ghost" data-simon="${esc(r.name)}">${r.on?'○':'×'}</button></td>
+      <td>${r.b5}</td><td>${r.b2}</td><td class="add">${r.add5}</td><td class="add">${r.add2}</td><td>${r.kg}kg</td></tr>`).join('')}
+    <tr class="tot"><td>合計</td><td></td><td>${tot('b5')}</td><td>${tot('b2')}</td><td>${tot('add5')}</td><td>${tot('add2')}</td><td>${tot('kg')}kg</td></tr></table></div>
+  <div class="row between" style="margin-top:8px"><b>精米が必要な量</b><span class="big okc">${tot('kg')}kg</span></div>
+  <div class="mute" style="font-size:12px">5kg×${tot('add5')}袋・2kg×${tot('add2')}袋。玄米なら約${Math.ceil(tot('kg') / (Number(ST('歩留まり')) || 0.9))}kg（歩留まり${pct(ST('歩留まり'))}%）。○×を押すと補充の対象を切り替えます。</div>
+  <div class="btnrow" style="grid-template-columns:1fr 1fr">
+    <button class="btn" id="simRecord" ${c.ok && (c.out5 + c.out2) ? '' : 'disabled'}>この移動を記録</button>
+    <button class="btn sub" id="simReset">試算を空にする</button></div>
+  </div>`;
+}
+function simRecord(){
+  const c = simCalc(); if(!c.ok) return toast('回収と移動先の数を合わせてください');
+  const date = today(), by = S.by || '試算', add = [];
+  // 回収元ごとに出す分を、受け取る店舗（＋社員のレジ店舗）へ順に割り振る
+  ['5kg','2kg'].forEach(size => {
+    const k = size === '5kg' ? 'm5' : 'm2', sk = size === '5kg' ? 'staff5' : 'staff2';
+    const outs = c.rows.filter(r => r[k] < 0).map(r => ({ n:r.name, q:-r[k] }));
+    const ins = c.rows.filter(r => r[k] > 0).map(r => ({ n:r.name, q:r[k], staff:false }));
+    if(Number(SIM[sk]) > 0) ins.push({ n:SIM.staffStore, q:Number(SIM[sk]), staff:true });
+    let i = 0;
+    outs.forEach(o => { while(o.q > 0 && i < ins.length){
+      const t = ins[i], q = Math.min(o.q, t.q);
+      if(t.n !== o.n){ const id = cid();
+        add.push({ clientId:id+'-o', date, store:o.n, size, kind:'移動出', qty:q, by, note:'→ ' + t.n + (t.staff ? '（社員）' : '') });
+        add.push({ clientId:id+'-i', date, store:t.n, size, kind:'移動入', qty:q, by, note:'← ' + o.n + (t.staff ? '（社員）' : '') }); }
+      o.q -= q; t.q -= q; if(t.q === 0) i++; } });
+  });
+  if(!add.length) return toast('記録する移動がありません');
+  if(!confirm(`${add.length / 2}件の移動を記録します。よろしいですか？`)) return;
+  setQ(Q.concat(add)); Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave();
+  toast('移動を記録しました'); rShop(); flush();
+}
+
 function rShop(){
   const el = $('#t-shop');
   if(!D){ el.innerHTML = noData(); return; }
@@ -884,6 +981,7 @@ function rShop(){
     ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td><td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td>
       <td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td><td>${yen(s.sales)}</td></tr>`).join('')}
   </table><div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
+  <h2>試算</h2><div class="card" id="simCard">${simHtml()}</div>
   <h2>${esc(S.store)} の最近の記録</h2>
   <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
       <div><span class="badge ${l.kind==='販売'?'g':l.kind==='配布'||l.kind==='移動入'?'b':'a'}">${esc(l.kind)}</span>
@@ -1911,6 +2009,7 @@ document.addEventListener('click', e => {
     const [obj, ...path] = b.dataset.step.split('.'); const d = Number(b.dataset.d);
     if(obj === 'F'){ F[path[0]] = Math.max(0, F[path[0]] + d); rRsv(); }
     else if(obj === 'S'){ S[path[0]] = Math.max(0, S[path[0]] + d); rShop(); }
+    else if(obj === 'SIMT'){ SIM[path[0]] = Math.max(0, Number(SIM[path[0]]) + d); simSave(); rShop(); }
     else if(obj === 'H'){ H[path[0]] = Math.max(0, Math.round((Number(H[path[0]]) + d) * 10) / 10); rMill(); }
     else if(obj === 'M'){ const [date,k] = path; const m = D.milling.find(x=>x.date===date);
       M[date] = M[date] || {}; M[date][k] = Math.max(0, (M[date][k] ?? millView(m)[k] ?? 0) + d); rMill(); }
@@ -1931,6 +2030,17 @@ document.addEventListener('click', e => {
   if(b.id === 'shopSubmit'){ submitShop(); return; }
   if(b.id === 'csvImport'){ csvImport(); return; }
   if(b.dataset.logfix){ fixLog(b.dataset.logfix); return; }
+  if(b.id === 'simOpen'){ SIM.open = true; rShop(); return; }
+  if(b.id === 'simClose'){ SIM.open = false; rShop(); return; }
+  if(b.id === 'simReset'){ Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave(); rShop(); return; }
+  if(b.id === 'simRecord'){ simRecord(); return; }
+  if(b.dataset.simon){ const n = b.dataset.simon, r = simCalc().rows.find(x => x.name === n); SIM.off[n] = !!(r && r.on); simSave(); rShop(); return; }
+  if(b.dataset.sim){
+    const d = Number(b.dataset.d), k = b.dataset.sim;
+    if(k === 'staff5' || k === 'staff2') SIM[k] = Math.max(0, Number(SIM[k]) + d);
+    else { const [n, z] = k.split('|'); SIM.mv[n] = SIM.mv[n] || {}; SIM.mv[n][z] = (Number(SIM.mv[n][z]) || 0) + d; }
+    simSave(); const y = window.scrollY; rShop(); window.scrollTo(0, y); return;
+  }
   if(b.id === 'shipSave'){ shipSave(); return; }
   if(b.id === 'shipRetry'){ shipLoad(null, true); return; }
   if(b.id === 'shipClear'){ Object.assign(SHIP, { data:null, counts:{}, err:'' }); shipRefresh(); return; }
@@ -2047,6 +2157,7 @@ document.addEventListener('input', e => {
     if(obj === 'F') F[path[0]] = v;
     else if(obj === 'S') S[path[0]] = v;
     else if(obj === 'H') H[path[0]] = v;
+    else if(obj === 'SIMT'){ SIM[path[0]] = v; simSave(); }
     else if(obj === 'M'){ const [date,k] = path; M[date] = M[date] || {}; M[date][k] = v; }
     return;
   }
@@ -2064,6 +2175,8 @@ document.addEventListener('change', e => {
   if(i.dataset.bg && i.tagName === 'SELECT'){ BG[i.dataset.bg] = i.value; if(i.dataset.bg === 'kind') rMill(); return; }
   if(i.dataset.hid){ saveHull(i.dataset.hid, i.dataset.hk, i.value); return; }
   if(i.dataset.h && i.dataset.h === 'date'){ H.date = i.value; rMill(); return; }
+  if(i.id === 'simHold'){ SIM.hold = i.checked; simSave(); rShop(); return; }
+  if(i.id === 'simStaffStore'){ SIM.staffStore = i.value; simSave(); rShop(); return; }
   if(i.id === 'fStaff'){ F.staff = i.checked; rRsv(); return; }
   if(i.id === 'shipFile'){ shipLoad(i.files && i.files[0]); return; }
   if(i.id === 'shipDate'){ SHIP.date = i.value; return; }
