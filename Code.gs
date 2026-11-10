@@ -191,7 +191,7 @@ function buildSummary_() {
   let sh = ss.getSheetByName('店舗集計');
   if (!sh) sh = ss.insertSheet('店舗集計');
   sh.clear();
-  const kinds = ['配布', '移動入', '移動出', '販売', '返品'];
+  const kinds = ['配布', '移動入', '移動出', '販売', '返品', '調整'];
   const head = ['店舗'];
   kinds.forEach(k => head.push(k + ' 5kg', k + ' 2kg'));
   head.push('残 5kg', '残 2kg');
@@ -202,8 +202,8 @@ function buildSummary_() {
   names.forEach((n, i) => {
     const row = i + 2, line = [n];
     kinds.forEach(k => { line.push(sumifs(row, k, '5kg'), sumifs(row, k, '2kg')); });
-    // B=配布5 C=配布2 D=移動入5 E=移動入2 F=移動出5 G=移動出2 H=販売5 I=販売2 J=返品5 K=返品2
-    line.push('=B' + row + '+D' + row + '-F' + row + '-H' + row + '-J' + row, '=C' + row + '+E' + row + '-G' + row + '-I' + row + '-K' + row);
+    // B=配布5 C=配布2 D=移動入5 E=移動入2 F=移動出5 G=移動出2 H=販売5 I=販売2 J=返品5 K=返品2 L=調整5 M=調整2（調整は＋−つき）
+    line.push('=B' + row + '+D' + row + '-F' + row + '-H' + row + '-J' + row + '+L' + row, '=C' + row + '+E' + row + '-G' + row + '-I' + row + '-K' + row + '+M' + row);
     out.push(line);
   });
   const last = names.length + 1;
@@ -214,7 +214,7 @@ function buildSummary_() {
   sh.getRange(1, 1, 1, head.length).setFontWeight('bold').setBackground('#e5efe7');
   sh.getRange(out.length, 1, 1, head.length).setFontWeight('bold');
   sh.setFrozenRows(1); sh.setFrozenColumns(1);
-  sh.getRange(out.length + 2, 1).setValue('※ 店舗実績の「区分」「規格」の文字が完全に一致した行だけを数えます（アプリの店舗別の状況と同じ）。数が合わないときはアプリの「スプレッドシートと照合」で読めない行を確認してください。');
+  sh.getRange(out.length + 2, 1).setValue('※ 残＝配布＋移動入−移動出−販売−返品＋調整（調整はアプリの「実数に合わせる」で入る＋−の数）。店舗実績の「区分」「規格」の文字が完全に一致した行だけを数えます（アプリの店舗別の状況と同じ）。数が合わないときはアプリの「スプレッドシートと照合」で読めない行を確認してください。');
   return { ok: true, stores: names.length };
 }
 function colLetter_(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
@@ -506,7 +506,7 @@ function addShopLogs_(items) {
       }
       return;
     }
-    if (['配布', '販売', '返品', '移動出', '移動入'].indexOf(it.kind) < 0) return;
+    if (['配布', '販売', '返品', '移動出', '移動入', '調整'].indexOf(it.kind) < 0) return;
     arrs.push(toArr_(sh, {
       '日付': it.date || todayStr_(), '店舗': it.store, '規格': it.size, '区分': it.kind,
       '数量': Math.floor(n_(it.qty)), '入力者': it.by || '', '備考': it.note || '',

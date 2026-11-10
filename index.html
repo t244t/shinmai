@@ -322,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '11/10 試算は予定に・袋の流れ';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/10 実数に合わせる（棚卸）';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -498,7 +498,7 @@ const remCell = (r, h, f) => h ? `${r}<div class="hold">取置${h}・店頭<span
 /** 店舗ごとの残り。asOf（日付）を渡すとその日の終わり時点で計算（日報の印刷用） */
 function stockTable(asOf){
   const t = {};
-  const blank = () => ({ 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0}, 移動入:{'5kg':0,'2kg':0}, 移動出:{'5kg':0,'2kg':0} });
+  const blank = () => ({ 配布:{'5kg':0,'2kg':0}, 販売:{'5kg':0,'2kg':0}, 返品:{'5kg':0,'2kg':0}, 移動入:{'5kg':0,'2kg':0}, 移動出:{'5kg':0,'2kg':0}, 調整:{'5kg':0,'2kg':0} });
   activeStores().forEach(s => t[s.name] = blank());
   const yenBy = {};
   allLogs().filter(l => !asOf || (l.date && l.date <= asOf)).forEach(l => {
@@ -510,15 +510,16 @@ function stockTable(asOf){
     const x = t[name];
     // 店舗間の移動：移動入は増え、移動出は減る
     const mv = z => x.移動入[z] - x.移動出[z];
-    const r5 = x.配布['5kg'] + mv('5kg') - x.販売['5kg'] - x.返品['5kg'];
-    const r2 = x.配布['2kg'] + mv('2kg') - x.販売['2kg'] - x.返品['2kg'];
+    // 調整：「実数に合わせる」で入れた差（＋−つき）
+    const r5 = x.配布['5kg'] + mv('5kg') - x.販売['5kg'] - x.返品['5kg'] + x.調整['5kg'];
+    const r2 = x.配布['2kg'] + mv('2kg') - x.販売['2kg'] - x.返品['2kg'] + x.調整['2kg'];
     const dist = x.配布['5kg'] + x.配布['2kg'] + mv('5kg') + mv('2kg');      // 店舗に入った数（移動を含む）
     const sold = x.販売['5kg'] + x.販売['2kg'];
     const sales = yenBy[name] || 0;   // CSVの金額（社割・値引きを含む実際の売上）
     // 予約の取り置き：その店舗で受け付けた未受取の予約（受け取りはレジを通るので、売上CSVで販売になったら残りから減る）
     const hold = (asOf ? holdsAt(asOf) : rsvOpen()).filter(r => r.store === name);
     const h5 = hold.reduce((a, r) => a + (Number(r.b5)||0), 0), h2 = hold.reduce((a, r) => a + (Number(r.b2)||0), 0);
-    return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], mv: mv('5kg') + mv('2kg'), r5, r2, h5, h2,
+    return { name, d5:x.配布['5kg'], d2:x.配布['2kg'], s5:x.販売['5kg'], s2:x.販売['2kg'], mv: mv('5kg') + mv('2kg'), adj: x.調整['5kg'] + x.調整['2kg'], r5, r2, h5, h2,
       f5: r5 - h5, f2: r2 - h2, rate: dist>0 ? sold/dist : null, sales };
   });
 }
@@ -1037,7 +1038,7 @@ function flowHtml(){
 
 /* ===== スプレッドシート（店舗実績）との照合 ===== */
 const RECON = { open:false };
-const KINDS = ['配布','移動入','移動出','販売','返品'];
+const KINDS = ['配布','移動入','移動出','販売','返品','調整'];
 function reconcileHtml(){
   if(!RECON.open) return `<button class="btn sm ghost" id="reconOpen" style="margin-top:8px">🔍 スプレッドシートと照合する</button>`;
   const logs = (D && D.logs) || [];
@@ -1050,7 +1051,7 @@ function reconcileHtml(){
   });
   const names = Object.keys(t).sort((a, b) => activeStores().findIndex(s => s.name === a) - activeStores().findIndex(s => s.name === b));
   const g = (n, k) => (t[n] && t[n][k]) || 0;
-  const rem = (n, z) => g(n,'配布'+z) + g(n,'移動入'+z) - g(n,'移動出'+z) - g(n,'販売'+z) - g(n,'返品'+z);
+  const rem = (n, z) => g(n,'配布'+z) + g(n,'移動入'+z) - g(n,'移動出'+z) - g(n,'販売'+z) - g(n,'返品'+z) + g(n,'調整'+z);
   return `<div class="act"><div class="row between"><b>🔍 スプレッドシート（店舗実績）との照合</b><button class="btn sm ghost" id="reconClose">閉じる</button></div>
     ${Q.length ? `<div class="warn" style="font-size:13px;margin-top:4px">未送信が ${Q.length} 件あります。これはまだスプレッドシートに入っていないので、アプリの数とずれます（電波のある所で ⟳ を押すと送られます）。</div>` : '<div class="okc" style="font-size:13px;margin-top:4px">未送信はありません</div>'}
     <div class="mute" style="font-size:12px;margin:4px 0">店舗実績の行をそのまま足した数です（未送信を除く）。スプレッドシートの「店舗集計」シートと同じ計算です。</div>
@@ -1073,12 +1074,14 @@ function rShop(){
     <label class="f">店舗</label>
     <div class="seg">${activeStores().map(s=>`<button data-sstore="${esc(s.name)}" class="${S.store===s.name?'on':''}">${esc(s.name)}</button>`).join('')}</div>
     <label class="f">区分</label>
-    <div class="seg">${[['配布','配布（店舗へ渡す）'],['販売','販売'],['返品','返品・回収'],['移動','店舗間の移動']].map(([k,l])=>`<button data-skind="${k}" class="${S.kind===k?'on':''}">${l}</button>`).join('')}</div>
+    <div class="seg">${[['配布','配布（店舗へ渡す）'],['販売','販売'],['返品','返品・回収'],['移動','店舗間の移動'],['棚卸','実数に合わせる（棚卸）']].map(([k,l])=>`<button data-skind="${k}" class="${S.kind===k?'on':''}">${l}</button>`).join('')}</div>
+    ${S.kind === '棚卸' ? (() => { const r = st.find(x => x.name === S.store) || { r5:0, r2:0 };
+      return `<div class="calc" style="margin-top:8px">${esc(S.store)} の記録上の残り：5kg <b>${r.r5}</b>・2kg <b>${r.r2}</b><br>店舗で数えた<b>実際の数</b>を下に入れて記録すると、差（5kg ${S.b5 - r.r5 >= 0 ? '+' : ''}${S.b5 - r.r5}・2kg ${S.b2 - r.r2 >= 0 ? '+' : ''}${S.b2 - r.r2}）を「調整」として記録し、残りがこの数になります。</div>`; })() : ''}
     ${S.kind === '移動' ? `<label class="f">移動先（${esc(S.store)} から）</label>
       <div class="seg">${activeStores().filter(s => s.name !== S.store).map(s=>`<button data-sto="${esc(s.name)}" class="${S.to===s.name?'on':''}">→ ${esc(s.name)}</button>`).join('')}</div>` : ''}
     <div class="grid2">
-      <div><label class="f">5kg</label>${stepper('S.b5',S.b5)}</div>
-      <div><label class="f">2kg</label>${stepper('S.b2',S.b2)}</div>
+      <div><label class="f">${S.kind === '棚卸' ? '実際の数 5kg' : '5kg'}</label>${stepper('S.b5',S.b5)}</div>
+      <div><label class="f">${S.kind === '棚卸' ? '実際の数 2kg' : '2kg'}</label>${stepper('S.b2',S.b2)}</div>
     </div>
     <div class="grid2">
       <div><label class="f">日付</label><input type="date" data-s="date" value="${esc(S.date)}"></div>
@@ -1093,15 +1096,15 @@ function rShop(){
   <div class="card" id="csvCard">${csvCardHtml()}</div>
   <h2>店舗別の状況</h2>
   <div class="card scroll"><table>
-    <tr><th>店舗</th><th>配布</th><th>移動</th><th>販売</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
-    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td><td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td>
+    <tr><th>店舗</th><th>配布</th><th>移動</th><th>販売</th>${st.some(s => s.adj) ? '<th>調整</th>' : ''}<th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
+    ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td>${st.some(x => x.adj) ? `<td>${s.adj ? (s.adj>0?'+':'') + s.adj : '-'}</td>` : ''}<td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td>
       <td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td><td>${yen(s.sales)}</td></tr>`).join('')}
-  </table>${flowHtml()}${reconcileHtml()}<div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
+  </table>${flowHtml()}${reconcileHtml()}<div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品＋調整（移動は入った数−出した数、調整は「実数に合わせる」で入れた差）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
   <h2>試算</h2><div class="card" id="simCard">${simHtml()}</div>
   <h2>${esc(S.store)} の最近の記録</h2>
   <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
       <div><span class="badge ${l.kind==='販売'?'g':l.kind==='配布'||l.kind==='移動入'?'b':'a'}">${esc(l.kind)}</span>
-        ${esc(l.size)} × ${l.qty}${/^移動/.test(l.kind) && l.note ? ` <span class="mute">${esc(l.note)}</span>` : ''}${l.kind==='販売' ? ` <span class="mute">${yen(logYen(l))}</span>` : ''}${l.ptype==='社割' ? ' <span class="badge a">社割</span>' : ''}　<span class="mute">${md(l.date)}${l.by?'・'+esc(l.by):''}</span>
+        ${esc(l.size)} × ${l.kind==='調整' && l.qty>0 ? '+' : ''}${l.qty}${(/^移動/.test(l.kind) || l.kind==='調整') && l.note ? ` <span class="mute">${esc(l.note)}</span>` : ''}${l.kind==='販売' ? ` <span class="mute">${yen(logYen(l))}</span>` : ''}${l.ptype==='社割' ? ' <span class="badge a">社割</span>' : ''}　<span class="mute">${md(l.date)}${l.by?'・'+esc(l.by):''}</span>
         ${l.pending?'<span class="badge a">未送信</span>':''}</div>
       <div class="row" style="gap:4px">${l.kind==='販売' && !l.pending ? `<button class="btn sm ghost" data-logfix="${esc(l.clientId)}">金額</button>` : ''}
       <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending?1:0}">取消</button></div></div>`).join('')
@@ -1425,8 +1428,23 @@ async function fixLog(id){
   try{ await api('updateShopLog', { clientId:id, amount, ptype: staff ? '社割' : '' }); toast('直しました'); await load(); }
   catch(err){ toast(err.message + '（GASの更新が必要かもしれません）'); }
 }
+/** 実数に合わせる（棚卸）：記録の残りとの差を「調整」（＋−つき）で記録 */
+function submitCount(){
+  const r = stockTable().find(x => x.name === S.store) || { r5:0, r2:0 };
+  const d5 = S.b5 - r.r5, d2 = S.b2 - r.r2;
+  if(!d5 && !d2) return toast('記録の数と同じです（直すことはありません）');
+  if(!confirm(`${S.store} の残りを 5kg ${S.b5}・2kg ${S.b2} に合わせます。\n（調整 5kg ${d5>0?'+':''}${d5}・2kg ${d2>0?'+':''}${d2}）\nよろしいですか？`)) return;
+  lsSet(K.by, S.by); lsSet(K.store, S.store);
+  const add = [];
+  [['5kg', d5, r.r5, S.b5], ['2kg', d2, r.r2, S.b2]].forEach(([size, d, from, to]) => {
+    if(d) add.push({ clientId:cid(), date:S.date||today(), store:S.store, size, kind:'調整', qty:d, by:S.by, note:`実数合わせ ${from}→${to}` });
+  });
+  setQ(Q.concat(add)); toast(`${S.store} の残りを実際の数に合わせました`);
+  S.kind = '販売'; S.b5 = 0; S.b2 = 0; rShop(); flush();
+}
 function submitShop(){
   if(!S.store) return toast('店舗を選んでください');
+  if(S.kind === '棚卸') return submitCount();
   if(S.b5 + S.b2 === 0) return toast('数量を入力してください');
   lsSet(K.by, S.by); lsSet(K.store, S.store);
   const add = [];
@@ -2143,8 +2161,12 @@ document.addEventListener('click', e => {
     api('updateReservation', { id:b.dataset.rs, status:st }).then(()=>{ toast('更新しました'); load(); }).catch(err=>toast(err.message));
     return;
   }
-  if(b.dataset.sstore){ S.store = b.dataset.sstore; if(S.to === S.store) S.to = ''; lsSet(K.store, S.store); rShop(); return; }
-  if(b.dataset.skind){ S.kind = b.dataset.skind; rShop(); return; }
+  if(b.dataset.sstore){ S.store = b.dataset.sstore; if(S.to === S.store) S.to = ''; lsSet(K.store, S.store);
+    if(S.kind === '棚卸'){ const r = stockTable().find(x => x.name === S.store) || { r5:0, r2:0 }; S.b5 = Math.max(0, r.r5); S.b2 = Math.max(0, r.r2); }
+    rShop(); return; }
+  if(b.dataset.skind){ S.kind = b.dataset.skind;
+    if(S.kind === '棚卸'){ const r = stockTable().find(x => x.name === S.store) || { r5:0, r2:0 }; S.b5 = Math.max(0, r.r5); S.b2 = Math.max(0, r.r2); }   // 今の記録の数から直す
+    rShop(); return; }
   if(b.dataset.sto){ S.to = b.dataset.sto; rShop(); return; }
   if(b.id === 'shopSubmit'){ submitShop(); return; }
   if(b.id === 'csvImport'){ csvImport(); return; }
