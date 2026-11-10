@@ -322,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '11/10 試算の記録をまとめて取消';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/10 スプレッドシートと照合';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -985,6 +985,34 @@ function simRecord(){
   toast('移動を記録しました'); rShop(); flush();
 }
 
+/* ===== スプレッドシート（店舗実績）との照合 ===== */
+const RECON = { open:false };
+const KINDS = ['配布','移動入','移動出','販売','返品'];
+function reconcileHtml(){
+  if(!RECON.open) return `<button class="btn sm ghost" id="reconOpen" style="margin-top:8px">🔍 スプレッドシートと照合する</button>`;
+  const logs = (D && D.logs) || [];
+  const bad = [], t = {};
+  logs.forEach(l => {
+    const why = !l.store ? '店舗が空' : KINDS.indexOf(l.kind) < 0 ? `区分「${l.kind}」が読めない` : (l.size !== '5kg' && l.size !== '2kg') ? `規格「${l.size}」が読めない`
+      : !Number(l.qty) ? '数量が0か空' : !l.date ? '日付が空' : '';
+    if(why){ bad.push({ l, why }); return; }
+    const x = t[l.store] = t[l.store] || {}; const k = l.kind + l.size; x[k] = (x[k] || 0) + Number(l.qty);
+  });
+  const names = Object.keys(t).sort((a, b) => activeStores().findIndex(s => s.name === a) - activeStores().findIndex(s => s.name === b));
+  const g = (n, k) => (t[n] && t[n][k]) || 0;
+  const rem = (n, z) => g(n,'配布'+z) + g(n,'移動入'+z) - g(n,'移動出'+z) - g(n,'販売'+z) - g(n,'返品'+z);
+  return `<div class="act"><div class="row between"><b>🔍 スプレッドシート（店舗実績）との照合</b><button class="btn sm ghost" id="reconClose">閉じる</button></div>
+    ${Q.length ? `<div class="warn" style="font-size:13px;margin-top:4px">未送信が ${Q.length} 件あります。これはまだスプレッドシートに入っていないので、アプリの数とずれます（電波のある所で ⟳ を押すと送られます）。</div>` : '<div class="okc" style="font-size:13px;margin-top:4px">未送信はありません</div>'}
+    <div class="mute" style="font-size:12px;margin:4px 0">店舗実績の行をそのまま足した数です（未送信を除く）。スプレッドシートの「店舗集計」シートと同じ計算です。</div>
+    <div class="scroll"><table><tr><th>店舗</th><th>規格</th>${KINDS.map(k=>`<th>${k}</th>`).join('')}<th>残</th></tr>
+      ${names.map(n => ['5kg','2kg'].map((z, i) => `<tr>${i ? '' : `<td rowspan="2">${esc(n)}</td>`}<td>${z}</td>${KINDS.map(k => `<td>${g(n, k+z) || ''}</td>`).join('')}<td><b>${rem(n, z)}</b></td></tr>`).join('')).join('')}
+    </table></div>
+    ${bad.length ? `<div class="warn" style="margin-top:8px;font-size:13px">数に入っていない行が ${bad.length} 行あります（スプレッドシートで直してください）</div>
+      <div class="mute" style="font-size:12px">${bad.slice(0, 30).map(x => `店舗実績 ${x.l.row || '?'}行目：${esc(x.why)}（${esc(x.l.date)} ${esc(x.l.store)} ${esc(x.l.kind)} ${esc(x.l.size)} ${x.l.qty}）`).join('<br>')}</div>`
+      : '<div class="okc" style="font-size:13px;margin-top:6px">読めない行はありません</div>'}
+    <button class="btn sub full" id="reconBuild" style="margin-top:8px">スプレッドシートに「店舗集計」シートを作る・更新する</button>
+  </div>`;
+}
 function rShop(){
   const el = $('#t-shop');
   if(!D){ el.innerHTML = noData(); return; }
@@ -1018,7 +1046,7 @@ function rShop(){
     <tr><th>店舗</th><th>配布</th><th>移動</th><th>販売</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
     ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td><td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td>
       <td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td><td>${yen(s.sales)}</td></tr>`).join('')}
-  </table><div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
+  </table>${reconcileHtml()}<div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
   <h2>試算</h2><div class="card" id="simCard">${simHtml()}</div>
   <h2>${esc(S.store)} の最近の記録</h2>
   <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
@@ -2071,6 +2099,9 @@ document.addEventListener('click', e => {
   if(b.id === 'shopSubmit'){ submitShop(); return; }
   if(b.id === 'csvImport'){ csvImport(); return; }
   if(b.dataset.logfix){ fixLog(b.dataset.logfix); return; }
+  if(b.id === 'reconOpen'){ RECON.open = true; rShop(); return; }
+  if(b.id === 'reconClose'){ RECON.open = false; rShop(); return; }
+  if(b.id === 'reconBuild'){ api('buildSummary').then(r => toast(`「店舗集計」シートを更新しました（${r.stores}店舗）`)).catch(e => toast(e.message + '（GASの更新が必要かもしれません）')); return; }
   if(b.id === 'simOpen'){ SIM.open = true; rShop(); return; }
   if(b.id === 'simClose'){ SIM.open = false; rShop(); return; }
   if(b.id === 'simReset'){ Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave(); rShop(); toast('②の移動を0に戻しました（①は記録のままです）'); return; }

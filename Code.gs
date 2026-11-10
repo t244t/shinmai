@@ -112,6 +112,7 @@ function doGet(e) {
     else if (a === 'addReservation') out = locked_(() => addReservation_(JSON.parse(p.data)));
     else if (a === 'updateReservation') out = locked_(() => updateReservation_(p));
     else if (a === 'addShopLogs') out = locked_(() => addShopLogs_(JSON.parse(p.items)));
+    else if (a === 'buildSummary') out = locked_(() => buildSummary_());
     else if (a === 'deleteShopLogs') out = locked_(() => deleteShopLogs_(JSON.parse(p.ids || '[]')));
     else if (a === 'updateShopLog') out = locked_(() => updateShopLog_(p));
     else if (a === 'deleteShopLog') out = locked_(() => deleteShopLog_(p.clientId));
@@ -173,8 +174,50 @@ function setup() {
   ensureStores_();
   const ml = sheet_('精米記録');
   rows_(ml).forEach(r => millingFormulas_(ml, r._row));
+  buildSummary_();
   return 'OK';
 }
+
+/**
+ * 「店舗集計」シート：店舗実績から、アプリの「店舗別の状況」と同じ計算を式で出す（照合用）
+ * 残 = 配布 + 移動入 − 移動出 − 販売 − 返品（規格は 5kg / 2kg、区分は文字が完全に一致したものだけ数える）
+ */
+function buildSummary_() {
+  const ss = ss_(), src = sheet_('店舗実績');
+  const c = cols_(src), L = h => colLetter_(c[h]);
+  const names = [];
+  rows_(sheet_('店舗マスタ')).forEach(r => { const n = String(r['店舗名'] || '').trim(); if (n && names.indexOf(n) < 0) names.push(n); });
+  rows_(src).forEach(r => { const n = String(r['店舗'] || '').trim(); if (n && names.indexOf(n) < 0) names.push(n); });
+  let sh = ss.getSheetByName('店舗集計');
+  if (!sh) sh = ss.insertSheet('店舗集計');
+  sh.clear();
+  const kinds = ['配布', '移動入', '移動出', '販売', '返品'];
+  const head = ['店舗'];
+  kinds.forEach(k => head.push(k + ' 5kg', k + ' 2kg'));
+  head.push('残 5kg', '残 2kg');
+  const S = "'店舗実績'!";
+  const sumifs = (row, kind, size) => '=SUMIFS(' + S + L('数量') + ':' + L('数量') + ',' + S + L('店舗') + ':' + L('店舗') + ',$A' + row
+    + ',' + S + L('区分') + ':' + L('区分') + ',"' + kind + '",' + S + L('規格') + ':' + L('規格') + ',"' + size + '")';
+  const out = [head];
+  names.forEach((n, i) => {
+    const row = i + 2, line = [n];
+    kinds.forEach(k => { line.push(sumifs(row, k, '5kg'), sumifs(row, k, '2kg')); });
+    // B=配布5 C=配布2 D=移動入5 E=移動入2 F=移動出5 G=移動出2 H=販売5 I=販売2 J=返品5 K=返品2
+    line.push('=B' + row + '+D' + row + '-F' + row + '-H' + row + '-J' + row, '=C' + row + '+E' + row + '-G' + row + '-I' + row + '-K' + row);
+    out.push(line);
+  });
+  const last = names.length + 1;
+  const tot = ['合計'];
+  for (let col = 2; col <= head.length; col++) { const a = colLetter_(col); tot.push('=SUM(' + a + '2:' + a + last + ')'); }
+  out.push(tot);
+  sh.getRange(1, 1, out.length, head.length).setValues(out);
+  sh.getRange(1, 1, 1, head.length).setFontWeight('bold').setBackground('#e5efe7');
+  sh.getRange(out.length, 1, 1, head.length).setFontWeight('bold');
+  sh.setFrozenRows(1); sh.setFrozenColumns(1);
+  sh.getRange(out.length + 2, 1).setValue('※ 店舗実績の「区分」「規格」の文字が完全に一致した行だけを数えます（アプリの店舗別の状況と同じ）。数が合わないときはアプリの「スプレッドシートと照合」で読めない行を確認してください。');
+  return { ok: true, stores: names.length };
+}
+function colLetter_(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
 
 /* ---------------- シート共通 ---------------- */
 
@@ -360,6 +403,7 @@ function getAll_() {
     date: d_(r['日付']), store: String(r['店舗']), size: String(r['規格']), kind: String(r['区分']),
     qty: n_(r['数量']), by: String(r['入力者']), note: String(r['備考']), clientId: String(r['受付ID']),
     amount: r['金額'] === '' || r['金額'] === undefined ? null : n_(r['金額']), ptype: String(r['価格区分'] || ''),
+    row: r._row,
   }));
 
   const milling = rows_(sheet_('精米記録')).map(r => {
