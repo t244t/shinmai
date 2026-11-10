@@ -322,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '11/10 スプレッドシートと照合';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/10 試算は予定に・袋の流れ';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -884,12 +884,13 @@ function mini(key, val){
   return `<span class="mini"><button type="button" data-sim="${key}" data-d="-1">−</button><b class="${val>0?'okc':val<0?'warn':''}">${val>0?'+':''}${val}</b><button type="button" data-sim="${key}" data-d="1">＋</button></span>`;
 }
 function simHtml(){
-  if(!SIM.open) return `<button class="btn sub full" id="simOpen">📊 移動と補充の試算を開く</button>`;
+  if(!SIM.open) return simPlanHtml() + `<button class="btn sub full" id="simOpen" style="margin-top:8px">📊 移動と補充の試算を開く</button>`;
   const c = simCalc(), R = c.rows, rate = r => r.rate == null ? '-' : Math.round(r.rate * 100) + '%';
   const tot = (k) => c.sum(k);
   const stores = activeStores().map(s => s.name);
   if(!SIM.staffStore) SIM.staffStore = stores[0] || '';
   return `<div class="row between"><b>📊 移動と補充の試算</b><button class="btn sm ghost" id="simClose">閉じる</button></div>
+  ${simPlanHtml()}
   <div class="sim">
   ${simMvListHtml()}
   <div class="sh">① 移動前の店舗別状況（今の記録）</div>
@@ -922,7 +923,7 @@ function simHtml(){
   <div class="row between" style="margin-top:8px"><b>精米が必要な量</b><span class="big okc">${tot('kg')}kg</span></div>
   <div class="mute" style="font-size:12px">5kg×${tot('add5')}袋・2kg×${tot('add2')}袋。玄米なら約${Math.ceil(tot('kg') / (Number(ST('歩留まり')) || 0.9))}kg（歩留まり${pct(ST('歩留まり'))}%）。○×を押すと補充の対象を切り替えます。</div>
   <div class="btnrow" style="grid-template-columns:1fr 1fr">
-    <button class="btn" id="simRecord" ${c.ok && (c.out5 + c.out2) ? '' : 'disabled'}>実際に記録する</button>
+    <button class="btn" id="simPlan" ${c.ok && (c.out5 + c.out2) ? '' : 'disabled'}>移動の予定にする</button>
     <button class="btn sub" id="simReset">②の移動を0に戻す</button></div>
   </div>`;
 }
@@ -935,7 +936,7 @@ function simMvListHtml(){
   mv.forEach(l => { const m = String(l.clientId).match(/^(SIM[0-9a-z]+)_/); if(m) (batches[m[1]] = batches[m[1]] || []).push(l); });
   const bk = Object.keys(batches);
   return `<details class="more" ${SIM.showMv || bk.length ? 'open' : ''} id="simMvList"><summary>記録済みの店舗間の移動（${mv.length}件）— ①に入っています</summary>
-    ${bk.map(k => { const ls = batches[k]; return `<div class="act" style="margin-top:6px"><div class="row between"><b>試算から記録（${md(ls[0].date)}・${ls.length}件）</b>
+    ${bk.map(k => { const ls = batches[k]; return `<div class="act" style="margin-top:6px"><div class="row between"><b>試算の予定から記録（${md(ls[0].date)}・${ls.length}件）</b>
         <button class="btn sm danger" data-simundo="${k}">まとめて取消</button></div>
       <div class="mute" style="font-size:12px">${ls.map(l => `${esc(l.store)} ${esc(l.note || '')} ${esc(l.size)}×${l.qty}`).join('<br>')}</div></div>`; }).join('')}
     <div class="mute" style="font-size:12px;margin:8px 0 4px">取り消したい移動に印を付けて、まとめて取り消せます（出と入の2件が一緒に消え、①が元に戻ります）。</div>
@@ -960,11 +961,9 @@ async function undoMoves(outIds){
     toast(`${server.length}件の記録を取り消しました`); await load();
   }catch(e){ toast(e.message); }
 }
-function simRecord(){
-  const c = simCalc(); if(!c.ok) return toast('回収と移動先の数を合わせてください');
-  const date = today(), by = '試算', add = [], batch = 'SIM' + Date.now().toString(36);   // まとめて取り消せるよう番号をそろえる
-  let seq = 0;
-  // 回収元ごとに出す分を、受け取る店舗（＋社員のレジ店舗）へ順に割り振る
+/** ②の移動を「どこからどこへ何袋」の行に分ける（回収元を受け取る店舗＋社員のレジ店舗へ順に割り振る） */
+function simLines(){
+  const c = simCalc(), lines = [];
   ['5kg','2kg'].forEach(size => {
     const k = size === '5kg' ? 'm5' : 'm2', sk = size === '5kg' ? 'staff5' : 'staff2';
     const outs = c.rows.filter(r => r[k] < 0).map(r => ({ n:r.name, q:-r[k] }));
@@ -973,16 +972,67 @@ function simRecord(){
     let i = 0;
     outs.forEach(o => { while(o.q > 0 && i < ins.length){
       const t = ins[i], q = Math.min(o.q, t.q);
-      if(t.n !== o.n){ const id = batch + '_' + (seq++);
-        add.push({ clientId:id+'-o', date, store:o.n, size, kind:'移動出', qty:q, by, note:'→ ' + t.n + (t.staff ? '（社員）' : '') });
-        add.push({ clientId:id+'-i', date, store:t.n, size, kind:'移動入', qty:q, by, note:'← ' + o.n + (t.staff ? '（社員）' : '') }); }
+      if(t.n !== o.n) lines.push({ from:o.n, to:t.n, staff:t.staff, size, qty:q });
       o.q -= q; t.q -= q; if(t.q === 0) i++; } });
   });
-  if(!add.length) return toast('記録する移動がありません');
-  const lines = add.filter(x => x.kind === '移動出').map(x => `・${x.store} ${x.note} ${x.size}×${x.qty}`).join('\n');
-  if(!confirm(`店舗の数を実際に動かします（試算ではなく記録になります）。\n\n${lines}\n\nよろしいですか？あとで「試算から記録した移動」でまとめて取り消せます。`)) return;
-  setQ(Q.concat(add)); Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave();
-  toast('移動を記録しました'); rShop(); flush();
+  return lines;
+}
+/** 試算 → 移動の予定（まだ記録しない）。実際に動かした行だけ「✓ 動かした」で記録する */
+function simPlan(){
+  const c = simCalc(); if(!c.ok) return toast('回収と移動先の数を合わせてください');
+  const ls = simLines(); if(!ls.length) return toast('移動がありません');
+  const pid = 'SIM' + Date.now().toString(36);
+  SIM.plan = ls.map((x, i) => Object.assign(x, { id: pid + '_' + i, done:false }));
+  SIM.planDate = today(); Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave();
+  toast('移動の予定にしました。実際に動かしたら「✓ 動かした」を押してください'); rShop();
+}
+/** 予定の1行を実際の記録にする（数は実際に動かした数に直せる） */
+function simDone(id){
+  const x = (SIM.plan || []).find(p => p.id === id); if(!x) return;
+  const v = prompt(`${x.from} → ${x.to}${x.staff ? '（社員）' : ''} ${x.size}\n実際に動かした袋数を入れてください`, String(x.qty));
+  if(v === null) return;
+  const q = Math.floor(Number(String(v).normalize('NFKC')));
+  if(!q || q < 0) return toast('袋数を入れてください');
+  const date = today();
+  setQ(Q.concat([
+    { clientId:x.id+'-o', date, store:x.from, size:x.size, kind:'移動出', qty:q, by:'移動予定', note:'→ ' + x.to + (x.staff ? '（社員）' : '') },
+    { clientId:x.id+'-i', date, store:x.to, size:x.size, kind:'移動入', qty:q, by:'移動予定', note:'← ' + x.from + (x.staff ? '（社員）' : '') },
+  ]));
+  x.done = true; x.qty = q; simSave(); toast(`${x.from} → ${x.to} ${x.size}×${q} を記録しました`); rShop(); flush();
+}
+function simPlanHtml(){
+  const P = SIM.plan || []; if(!P.length) return '';
+  const left = P.filter(p => !p.done).length;
+  return `<div class="act" style="margin-top:10px"><div class="row between"><b>🚚 移動の予定（${md(SIM.planDate || today())}）</b>
+      <button class="btn sm ghost" id="simPlanClear">${left ? '予定を消す' : '片付ける'}</button></div>
+    <div class="mute" style="font-size:12px">まだ店舗の数は変わっていません。実際に袋を動かした行だけ「✓ 動かした」を押すと記録されます。</div>
+    ${P.map(p => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line)">
+      <span style="font-size:14px">${esc(p.from)} → ${esc(p.to)}${p.staff ? '（社員）' : ''}　<b>${p.size}×${p.qty}</b></span>
+      ${p.done ? '<span class="badge g">記録済</span>' : `<button class="btn sm" data-simdone="${esc(p.id)}">✓ 動かした</button>`}</div>`).join('')}
+  </div>`;
+}
+
+/* ===== 袋の流れ：精米した袋 = 店舗へ配布 + 手元（返品で戻った分は手元へ） ===== */
+function flowSum(){
+  const z = { '5kg':{ mill:0, dist:0, ret:0, sold:0, rem:0 }, '2kg':{ mill:0, dist:0, ret:0, sold:0, rem:0 } };
+  ((D && D.milling) || []).filter(m => m.status === '精米済').forEach(m => {
+    const b = savedBags(m); z['5kg'].mill += (Number(b.b5k)||0) + (Number(b.b5m)||0); z['2kg'].mill += (Number(b.b2k)||0) + (Number(b.b2m)||0);
+  });
+  allLogs().forEach(l => { const x = z[l.size]; if(!x) return; const q = Number(l.qty) || 0;
+    if(l.kind === '配布') x.dist += q; else if(l.kind === '返品') x.ret += q; else if(l.kind === '販売') x.sold += q; });
+  stockTable().forEach(r => { z['5kg'].rem += r.r5; z['2kg'].rem += r.r2; });
+  Object.values(z).forEach(x => x.home = x.mill - x.dist + x.ret);
+  return z;
+}
+function flowHtml(){
+  const z = flowSum();
+  if(!z['5kg'].mill && !z['2kg'].mill) return '';
+  return `<div class="act"><b>🍚 袋の流れ（精米した袋と店舗の数）</b>
+    <div class="scroll"><table><tr><th></th><th>精米した</th><th>店舗へ配布</th><th>返品で戻る</th><th>手元にあるはず</th><th>店舗の残</th><th>販売</th></tr>
+      ${['5kg','2kg'].map(k => { const x = z[k]; return `<tr><td>${k}</td><td>${x.mill}</td><td>${x.dist}</td><td>${x.ret || ''}</td>
+        <td class="${x.home<0?'warn':''}"><b>${x.home}</b></td><td>${x.rem}</td><td>${x.sold}</td></tr>`; }).join('')}</table></div>
+    <div class="mute" style="font-size:12px">精米した＝精米済の回の実績（実績がなければ依頼の数）。手元にあるはず＝精米した−配布＋返品。店舗間の移動は店舗の中で動くだけなので、ここの数は変わりません。${['5kg','2kg'].some(k => z[k].home < 0) ? '<br><span class="warn">手元がマイナスです。配布を多く記録しているか、精米の実績が入っていない回があります。</span>' : ''}</div>
+  </div>`;
 }
 
 /* ===== スプレッドシート（店舗実績）との照合 ===== */
@@ -1046,7 +1096,7 @@ function rShop(){
     <tr><th>店舗</th><th>配布</th><th>移動</th><th>販売</th><th>残 5kg</th><th>残 2kg</th><th>販売率</th><th>売上</th></tr>
     ${st.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.d5+s.d2}</td><td>${s.mv ? (s.mv>0?'+':'') + s.mv : '-'}</td><td>${s.s5+s.s2}</td><td>${remCell(s.r5,s.h5,s.f5)}</td><td>${remCell(s.r2,s.h2,s.f2)}</td>
       <td>${s.rate==null?'-':Math.round(s.rate*100)+'%'}</td><td>${yen(s.sales)}</td></tr>`).join('')}
-  </table>${reconcileHtml()}<div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
+  </table>${flowHtml()}${reconcileHtml()}<div class="mute" style="margin-top:6px">残＝配布＋移動−販売−返品（移動は入った数−出した数）。取置＝その店舗の未受取の予約、店頭＝残−取置。予約の受け取りはレジを通るので、売上CSVを取り込むと販売になり残から減ります（受け取ったら予約タブで受取済に）。売上は税込価格で計算。</div></div>
   <h2>試算</h2><div class="card" id="simCard">${simHtml()}</div>
   <h2>${esc(S.store)} の最近の記録</h2>
   <div class="list">${logs.length ? logs.map(l=>`<div class="card row between">
@@ -2105,7 +2155,9 @@ document.addEventListener('click', e => {
   if(b.id === 'simOpen'){ SIM.open = true; rShop(); return; }
   if(b.id === 'simClose'){ SIM.open = false; rShop(); return; }
   if(b.id === 'simReset'){ Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave(); rShop(); toast('②の移動を0に戻しました（①は記録のままです）'); return; }
-  if(b.id === 'simRecord'){ simRecord(); return; }
+  if(b.id === 'simPlan'){ simPlan(); return; }
+  if(b.dataset.simdone){ simDone(b.dataset.simdone); return; }
+  if(b.id === 'simPlanClear'){ if(!(SIM.plan || []).some(p => !p.done) || confirm('まだ動かしていない予定も消します。よろしいですか？')){ SIM.plan = []; simSave(); rShop(); } return; }
   if(b.dataset.simundo){
     const k = b.dataset.simundo, outs = allLogs().filter(l => l.kind === '移動出' && String(l.clientId).indexOf(k + '_') === 0).map(l => l.clientId);
     if(confirm(`試算から記録した移動 ${outs.length}件をまとめて取り消します。よろしいですか？`)) undoMoves(outs); return;
