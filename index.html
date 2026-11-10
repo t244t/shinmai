@@ -322,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '11/10 実数に合わせる（棚卸）';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/10 実数に合わせる（棚卸）2';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -402,13 +402,25 @@ async function flush(){
   if(flushing || !Q.length || !gasUrl()) return;
   flushing = true;
   try{
+    const sent = [];
     while(Q.length){
       const batch = Q.slice(0, 15);
       const res = await api('addShopLogs', { items: JSON.stringify(batch) });
       const done = new Set(res.done || []);
+      if(!done.size && (res.rejected || []).length) break;   // 新しいGASが受け付けなかった
+      batch.filter(x => done.has(x.clientId)).forEach(x => sent.push(x));
       setQ(Q.filter(x => !done.has(x.clientId)));
+      if(!done.size) break;
     }
     await load(true);
+    // 送ったのにスプレッドシートに無い記録（古いGASが区分を知らずに捨てた）は未送信に戻して知らせる
+    const have = new Set(((D && D.logs) || []).map(l => l.clientId));
+    const lost = sent.filter(x => !have.has(x.clientId));
+    if(lost.length){
+      setQ(Q.concat(lost.filter(x => !Q.some(q => q.clientId === x.clientId))));
+      toast(`${lost.length}件がスプレッドシートに保存されませんでした（${[...new Set(lost.map(x => x.kind))].join('・')}）。GASを最新の版にしてください`);
+      render(true);
+    }
   }catch(e){ /* 電波が戻ったら再送 */ }
   finally{ flushing = false; }
 }
@@ -2131,7 +2143,7 @@ function rSet(){
   <h2>この端末</h2><div class="card">
     <div class="mute">未送信の記録：${Q.length}件　${Q.length?'<button class="btn sm" id="flushNow">今すぐ送信</button>':''}</div>
     <div class="mute" style="margin-top:6px">未送信が残っている間は、ブラウザのサイトデータを消さないでください。</div>
-    <div class="mute" style="margin-top:6px">アプリの版：${APP_VER}</div></div>`;
+    <div class="mute" style="margin-top:6px">アプリの版：${APP_VER}<br>GASの版：${esc((D && D.ver) || '（古い版：Code.gsを貼り替えてください）')}</div></div>`;
 }
 
 /* ===== イベント ===== */

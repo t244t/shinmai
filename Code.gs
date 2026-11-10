@@ -6,6 +6,9 @@
 const SPREADSHEET_ID = ''; // 空欄 = このスクリプトがバインドされたスプレッドシートを使う
 const TZ = 'Asia/Tokyo';
 
+// GASの版。アプリの⚙設定に表示し、アプリとGASの組み合わせを確かめる
+const GAS_VER = '11/10 調整対応';
+
 const HEAD = {
   '設定':     ['キー', '値', '説明'],
   '価格マスタ': ['規格', '内容量kg', '税別', '税込', '社割税込', '予約価格'],
@@ -107,7 +110,7 @@ function doGet(e) {
   let out;
   try {
     const a = p.action || 'ping';
-    if (a === 'ping') out = { ok: true, now: nowStr_() };
+    if (a === 'ping') out = { ok: true, ver: GAS_VER, now: nowStr_() };
     else if (a === 'getAll') out = getAll_();
     else if (a === 'addReservation') out = locked_(() => addReservation_(JSON.parse(p.data)));
     else if (a === 'updateReservation') out = locked_(() => updateReservation_(p));
@@ -440,7 +443,7 @@ function getAll_() {
     waste: n_(r['くず米kg']), inspect: d_(r['検査日']), grade: String(r['等級'] || '未検査'), note: String(r['備考']),
   })).filter(h => h.id);
 
-  return { ok: true, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks, bags, hulls };
+  return { ok: true, ver: GAS_VER, now: nowStr_(), settings, prices, stores, reservations, logs, milling, tasks, bags, hulls };
 }
 
 /* ---------------- 予約 ---------------- */
@@ -491,7 +494,7 @@ function addShopLogs_(items) {
   const sh = sheet_('店舗実績');
   const seen = {};
   rows_(sh).forEach(r => { if (r['受付ID']) seen[String(r['受付ID'])] = r; });
-  const arrs = [], done = [];
+  const arrs = [], done = [], rejected = [];
   let updated = 0;
   items.forEach(it => {
     done.push(it.clientId);
@@ -506,7 +509,7 @@ function addShopLogs_(items) {
       }
       return;
     }
-    if (['配布', '販売', '返品', '移動出', '移動入', '調整'].indexOf(it.kind) < 0) return;
+    if (['配布', '販売', '返品', '移動出', '移動入', '調整'].indexOf(it.kind) < 0) { done.pop(); rejected.push(it.clientId); return; }
     arrs.push(toArr_(sh, {
       '日付': it.date || todayStr_(), '店舗': it.store, '規格': it.size, '区分': it.kind,
       '数量': Math.floor(n_(it.qty)), '入力者': it.by || '', '備考': it.note || '',
@@ -516,7 +519,7 @@ function addShopLogs_(items) {
     if (it.clientId) seen[it.clientId] = true;
   });
   appendRows_(sh, arrs);
-  return { ok: true, added: arrs.length, updated: updated, done: done };
+  return { ok: true, added: arrs.length, updated: updated, done: done, rejected: rejected };
 }
 
 function updateShopLog_(p) {
