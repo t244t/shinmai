@@ -322,7 +322,7 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMByoy2YZAjUvo
 const K = { url:'shinmai_gas_url', cache:'shinmai_cache_v1', queue:'shinmai_queue_v1',
             store:'shinmai_store', by:'shinmai_by', tab:'shinmai_tab' };
 const WD = ['日','月','火','水','木','金','土'];
-const APP_VER = '11/5 移動と補充の試算（記録の取消）';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
+const APP_VER = '11/10 試算の記録をまとめて取消';   // 画面が最新か確かめる目印（⚙設定のいちばん下に表示）
 
 /* ===== 保存 ===== */
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -891,11 +891,7 @@ function simHtml(){
   if(!SIM.staffStore) SIM.staffStore = stores[0] || '';
   return `<div class="row between"><b>📊 移動と補充の試算</b><button class="btn sm ghost" id="simClose">閉じる</button></div>
   <div class="sim">
-  ${(() => { const mv = allLogs().filter(l => l.kind === '移動出').sort((a, b) => (b.date + b.clientId) < (a.date + a.clientId) ? -1 : 1).slice(0, 20);
-    return mv.length ? `<details class="more" ${SIM.showMv ? 'open' : ''} id="simMvList"><summary>記録済みの店舗間の移動（${mv.length}件）— ①に入っています</summary>
-      <div class="mute" style="font-size:12px;margin:4px 0">試しに記録したものは「取消」で消すと、①が元に戻ります（出と入の2件が一緒に消えます）。</div>
-      ${mv.map(l => `<div class="row between" style="padding:4px 0;border-bottom:1px solid var(--line)"><span style="font-size:13px">${md(l.date)} ${esc(l.store)} ${esc(l.note || '')}　${esc(l.size)}×${l.qty}${l.pending ? ' <span class="badge a">未送信</span>' : ''}</span>
-        <button class="btn sm ghost" data-dellog="${esc(l.clientId)}" data-pending="${l.pending ? 1 : 0}">取消</button></div>`).join('')}</details>` : ''; })()}
+  ${simMvListHtml()}
   <div class="sh">① 移動前の店舗別状況（今の記録）</div>
   <div class="mute" style="font-size:12px">配布・販売・移動の記録からいつも自動で出ます（試算では変わりません）。記録した移動を取り消すと、ここも元に戻ります。</div>
   <div class="scroll"><table><tr><th>店舗</th><th>配布</th><th>販売</th><th>残5kg</th><th>残2kg</th><th>販売率</th><th>売上</th></tr>
@@ -926,13 +922,48 @@ function simHtml(){
   <div class="row between" style="margin-top:8px"><b>精米が必要な量</b><span class="big okc">${tot('kg')}kg</span></div>
   <div class="mute" style="font-size:12px">5kg×${tot('add5')}袋・2kg×${tot('add2')}袋。玄米なら約${Math.ceil(tot('kg') / (Number(ST('歩留まり')) || 0.9))}kg（歩留まり${pct(ST('歩留まり'))}%）。○×を押すと補充の対象を切り替えます。</div>
   <div class="btnrow" style="grid-template-columns:1fr 1fr">
-    <button class="btn" id="simRecord" ${c.ok && (c.out5 + c.out2) ? '' : 'disabled'}>この移動を記録</button>
+    <button class="btn" id="simRecord" ${c.ok && (c.out5 + c.out2) ? '' : 'disabled'}>実際に記録する</button>
     <button class="btn sub" id="simReset">②の移動を0に戻す</button></div>
   </div>`;
 }
+/** 記録済みの移動：試算でまとめて記録したもの（一括取消）と、選んで取り消す一覧 */
+const SIMSEL = new Set();
+function simMvListHtml(){
+  const mv = allLogs().filter(l => l.kind === '移動出').sort((a, b) => (b.date + b.clientId) < (a.date + a.clientId) ? -1 : 1);
+  if(!mv.length) return '';
+  const batches = {};
+  mv.forEach(l => { const m = String(l.clientId).match(/^(SIM[0-9a-z]+)_/); if(m) (batches[m[1]] = batches[m[1]] || []).push(l); });
+  const bk = Object.keys(batches);
+  return `<details class="more" ${SIM.showMv || bk.length ? 'open' : ''} id="simMvList"><summary>記録済みの店舗間の移動（${mv.length}件）— ①に入っています</summary>
+    ${bk.map(k => { const ls = batches[k]; return `<div class="act" style="margin-top:6px"><div class="row between"><b>試算から記録（${md(ls[0].date)}・${ls.length}件）</b>
+        <button class="btn sm danger" data-simundo="${k}">まとめて取消</button></div>
+      <div class="mute" style="font-size:12px">${ls.map(l => `${esc(l.store)} ${esc(l.note || '')} ${esc(l.size)}×${l.qty}`).join('<br>')}</div></div>`; }).join('')}
+    <div class="mute" style="font-size:12px;margin:8px 0 4px">取り消したい移動に印を付けて、まとめて取り消せます（出と入の2件が一緒に消え、①が元に戻ります）。</div>
+    ${mv.slice(0, 40).map(l => `<label class="row" style="padding:5px 0;border-bottom:1px solid var(--line);gap:8px;font-size:13px">
+      <input type="checkbox" data-simsel="${esc(l.clientId)}" ${SIMSEL.has(l.clientId) ? 'checked' : ''}>
+      <span>${md(l.date)} ${esc(l.store)} ${esc(l.note || '')}　${esc(l.size)}×${l.qty}${l.pending ? ' <span class="badge a">未送信</span>' : ''}</span></label>`).join('')}
+    <button class="btn sub full" id="simSelUndo" style="margin-top:8px" ${SIMSEL.size ? '' : 'disabled'}>印を付けた ${SIMSEL.size} 件を取り消す</button>
+  </details>`;
+}
+/** 移動の記録をまとめて取り消す（出と入の組で）。未送信はその場で消し、送信済みは1回でまとめて消す */
+async function undoMoves(outIds){
+  const ids = [];
+  outIds.forEach(id => { const m = String(id).match(/^(.*)-[oi]$/); if(m) ids.push(m[1] + '-o', m[1] + '-i'); else ids.push(id); });
+  const qIds = new Set(Q.map(q => q.clientId));
+  setQ(Q.filter(q => ids.indexOf(q.clientId) < 0));
+  const server = ids.filter(x => !qIds.has(x) && (D.logs || []).some(l => l.clientId === x));
+  SIM.showMv = true; SIMSEL.clear();
+  if(!server.length){ toast('取り消しました'); rShop(); return; }
+  try{
+    try{ await api('deleteShopLogs', { ids: JSON.stringify(server) }); }
+    catch(e){ for(const x of server){ try{ await api('deleteShopLog', { clientId:x }); }catch(_){ /* 見つからない記録は飛ばす */ } } }
+    toast(`${server.length}件の記録を取り消しました`); await load();
+  }catch(e){ toast(e.message); }
+}
 function simRecord(){
   const c = simCalc(); if(!c.ok) return toast('回収と移動先の数を合わせてください');
-  const date = today(), by = S.by || '試算', add = [];
+  const date = today(), by = '試算', add = [], batch = 'SIM' + Date.now().toString(36);   // まとめて取り消せるよう番号をそろえる
+  let seq = 0;
   // 回収元ごとに出す分を、受け取る店舗（＋社員のレジ店舗）へ順に割り振る
   ['5kg','2kg'].forEach(size => {
     const k = size === '5kg' ? 'm5' : 'm2', sk = size === '5kg' ? 'staff5' : 'staff2';
@@ -942,13 +973,14 @@ function simRecord(){
     let i = 0;
     outs.forEach(o => { while(o.q > 0 && i < ins.length){
       const t = ins[i], q = Math.min(o.q, t.q);
-      if(t.n !== o.n){ const id = cid();
+      if(t.n !== o.n){ const id = batch + '_' + (seq++);
         add.push({ clientId:id+'-o', date, store:o.n, size, kind:'移動出', qty:q, by, note:'→ ' + t.n + (t.staff ? '（社員）' : '') });
         add.push({ clientId:id+'-i', date, store:t.n, size, kind:'移動入', qty:q, by, note:'← ' + o.n + (t.staff ? '（社員）' : '') }); }
       o.q -= q; t.q -= q; if(t.q === 0) i++; } });
   });
   if(!add.length) return toast('記録する移動がありません');
-  if(!confirm(`${add.length / 2}件の移動を記録します。よろしいですか？`)) return;
+  const lines = add.filter(x => x.kind === '移動出').map(x => `・${x.store} ${x.note} ${x.size}×${x.qty}`).join('\n');
+  if(!confirm(`店舗の数を実際に動かします（試算ではなく記録になります）。\n\n${lines}\n\nよろしいですか？あとで「試算から記録した移動」でまとめて取り消せます。`)) return;
   setQ(Q.concat(add)); Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave();
   toast('移動を記録しました'); rShop(); flush();
 }
@@ -1350,8 +1382,11 @@ async function delLog(id, pending){
   setQ(Q.filter(q => ids.indexOf(q.clientId) < 0));
   const server = ids.filter(x => qIds.indexOf(x) < 0 && (D.logs || []).some(l => l.clientId === x));
   if(!server.length){ toast('取り消しました'); rShop(); return; }
-  try{ for(const x of server) await api('deleteShopLog', { clientId:x }); toast('取り消しました'); await load(); }
-  catch(e){ toast(e.message); }
+  try{
+    try{ await api('deleteShopLogs', { ids: JSON.stringify(server) }); }
+    catch(e){ for(const x of server){ try{ await api('deleteShopLog', { clientId:x }); }catch(_){} } }
+    toast('取り消しました'); await load();
+  }catch(e){ toast(e.message); }
 }
 
 /* --- 精米 --- */
@@ -2040,6 +2075,11 @@ document.addEventListener('click', e => {
   if(b.id === 'simClose'){ SIM.open = false; rShop(); return; }
   if(b.id === 'simReset'){ Object.assign(SIM, { mv:{}, staff5:0, staff2:0 }); simSave(); rShop(); toast('②の移動を0に戻しました（①は記録のままです）'); return; }
   if(b.id === 'simRecord'){ simRecord(); return; }
+  if(b.dataset.simundo){
+    const k = b.dataset.simundo, outs = allLogs().filter(l => l.kind === '移動出' && String(l.clientId).indexOf(k + '_') === 0).map(l => l.clientId);
+    if(confirm(`試算から記録した移動 ${outs.length}件をまとめて取り消します。よろしいですか？`)) undoMoves(outs); return;
+  }
+  if(b.id === 'simSelUndo'){ if(SIMSEL.size && confirm(`${SIMSEL.size}件の移動を取り消します。よろしいですか？`)) undoMoves([...SIMSEL]); return; }
   if(b.dataset.simon){ const n = b.dataset.simon, r = simCalc().rows.find(x => x.name === n); SIM.off[n] = !!(r && r.on); simSave(); rShop(); return; }
   if(b.dataset.sim){
     const d = Number(b.dataset.d), k = b.dataset.sim;
@@ -2182,6 +2222,7 @@ document.addEventListener('change', e => {
   if(i.dataset.bg && i.tagName === 'SELECT'){ BG[i.dataset.bg] = i.value; if(i.dataset.bg === 'kind') rMill(); return; }
   if(i.dataset.hid){ saveHull(i.dataset.hid, i.dataset.hk, i.value); return; }
   if(i.dataset.h && i.dataset.h === 'date'){ H.date = i.value; rMill(); return; }
+  if(i.dataset.simsel){ if(i.checked) SIMSEL.add(i.dataset.simsel); else SIMSEL.delete(i.dataset.simsel); SIM.showMv = true; const y = window.scrollY; rShop(); window.scrollTo(0, y); return; }
   if(i.id === 'simHold'){ SIM.hold = i.checked; simSave(); rShop(); return; }
   if(i.id === 'simStaffStore'){ SIM.staffStore = i.value; simSave(); rShop(); return; }
   if(i.id === 'fStaff'){ F.staff = i.checked; rRsv(); return; }

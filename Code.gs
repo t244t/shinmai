@@ -112,6 +112,7 @@ function doGet(e) {
     else if (a === 'addReservation') out = locked_(() => addReservation_(JSON.parse(p.data)));
     else if (a === 'updateReservation') out = locked_(() => updateReservation_(p));
     else if (a === 'addShopLogs') out = locked_(() => addShopLogs_(JSON.parse(p.items)));
+    else if (a === 'deleteShopLogs') out = locked_(() => deleteShopLogs_(JSON.parse(p.ids || '[]')));
     else if (a === 'updateShopLog') out = locked_(() => updateShopLog_(p));
     else if (a === 'deleteShopLog') out = locked_(() => deleteShopLog_(p.clientId));
     else if (a === 'saveMilling') out = locked_(() => saveMilling_(p));
@@ -483,6 +484,15 @@ function updateShopLog_(p) {
   if (p.ptype !== undefined) o['価格区分'] = p.ptype;
   writeRow_(sh, r._row, o);
   return { ok: true };
+}
+
+/** まとめて取り消す（見つからない記録は飛ばす）。下の行から消すので行番号がずれない */
+function deleteShopLogs_(ids) {
+  const sh = sheet_('店舗実績');
+  const want = {}; ids.forEach(x => want[String(x)] = true);
+  const rows = rows_(sh).filter(r => want[String(r['受付ID'])]).map(r => r._row).sort((a, b) => b - a);
+  rows.forEach(n => sh.deleteRow(n));
+  return { ok: true, deleted: rows.length };
 }
 
 function deleteShopLog_(clientId) {
